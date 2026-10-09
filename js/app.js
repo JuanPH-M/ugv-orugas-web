@@ -11,7 +11,7 @@ let toastT;
 UGV.on('toast', t => { const el = $('toast'); el.textContent = t; el.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => el.classList.remove('show'), 3200); });
 
 /* ---------- Pestañas ---------- */
-const HASH = { sim: 'simulador', circ: 'circuito', parts: 'piezas', proj: 'proyecto' };
+const HASH = { sim: 'simulador', circ: 'circuito', parts: 'piezas', tests: 'pruebas', proj: 'proyecto' };
 const firstShow = {};
 UGV.goTab = name => {
   UGV.activeTab = name;
@@ -117,6 +117,8 @@ UGV.on('telemetry', t => {
   $('tI').textContent = Math.round(t.ibat * 1000) + ' mA';
   const mins = t.ibat > .005 ? UGV.Sim.P.capAh * t.soc / t.ibat * 60 : Infinity;
   $('tAut').textContent = isFinite(mins) ? (mins > 600 ? '> 10 h' : Math.round(mins) + ' min') : '—';
+  $('hMass').textContent = `${fmt(t.mass, 2)} kg`;
+  drawChart();
   $('physNote').textContent = `Velocidad tope con la batería actual: ${Math.round(UGV.Sim.vTop())} cm/s (motor a ${fmt(t.vbat * 1, 1)} V menos 1,8 V del L298N).`;
   $('routeSec').textContent = (t.mode === 'auto' ? 'modo automático' : fmt(t.recT) + ' s guardados') + (t.replay ? ' · regresando' : '');
   $('lgEst').hidden = !t.est; $('lgRef').hidden = !(UGV.isOn('aruco') || t.mode === 'auto');
@@ -144,6 +146,95 @@ function drawRoute(t) {
   const [rx, ry] = P(st.x, st.z); rg.save(); rg.translate(rx, ry); rg.rotate(-st.yaw);
   rg.fillStyle = css('--mint'); rg.beginPath(); rg.moveTo(11 * dpr, 0); rg.lineTo(-6 * dpr, 6 * dpr); rg.lineTo(-3 * dpr, 0); rg.lineTo(-6 * dpr, -6 * dpr); rg.closePath(); rg.fill(); rg.restore();
 }
+
+
+/* ---------- Carga, escenario, ruta dibujada y foto ---------- */
+$('load').addEventListener('input', e => { const kg = +e.target.value; Sim.setLoad(kg); $('loadLbl').textContent = fmt(kg) + ' kg'; });
+$('bDraw').addEventListener('click', () => { const on = $('bDraw').getAttribute('aria-pressed') !== 'true'; $('bDraw').setAttribute('aria-pressed', on); Sim.setDraw(on); });
+UGV.on('draw', v => $('bDraw').setAttribute('aria-pressed', v));
+UGV.on('custom', n => { $('wpCount').textContent = n + (n === 1 ? ' punto' : ' puntos'); });
+$('bClearWp').addEventListener('click', () => { Sim.clearCustom(); $('wpCount').textContent = '0 puntos'; });
+$('bAddObs').addEventListener('click', () => Sim.addObstacle());
+$('bClrObs').addEventListener('click', () => Sim.clearObstacles());
+$('bDefObs').addEventListener('click', () => Sim.resetObstacles());
+$('bSnap').addEventListener('click', () => Sim.snapshot());
+
+/* ---------- Descargas ---------- */
+function download(name, text, type = 'text/csv;charset=utf-8') {
+  const b = new Blob(['﻿' + text], { type }); const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+$('bCsv').addEventListener('click', () => { if (!Sim.log.length) { UGV.emit('toast', 'Todavía no hay datos: maneja el robot un momento.'); return; } download('telemetria-ugv.csv', Sim.csv()); });
+
+/* ---------- Gráfica en vivo ---------- */
+let chartVar = 'v';
+document.querySelectorAll('[data-chart]').forEach(b => b.addEventListener('click', () => { chartVar = b.dataset.chart; document.querySelectorAll('[data-chart]').forEach(x => x.setAttribute('aria-pressed', x === b)); drawChart(); }));
+const CH = { v: { lbl: 'cm/s', f: r => r.v }, i: { lbl: 'mA', f: r => r.i * 1000 }, vbat: { lbl: 'V', f: r => r.vbat }, err: { lbl: 'cm', f: r => r.err === '' ? null : r.err } };
+function niceStep(range) { const p = Math.pow(10, Math.floor(Math.log10(range / 4))); for (const m of [1, 2, 2.5, 5, 10]) if (range / (m * p) <= 5) return m * p; return 10 * p; }
+function drawChart() {
+  const cv = $('chart'); if (!cv || UGV.activeTab !== 'sim') return; const g = cv.getContext('2d'), r = cv.getBoundingClientRect(), dpr = Math.min(devicePixelRatio, 2);
+  if (!r.width) return;
+  if (cv.width !== Math.round(r.width * dpr) || cv.height !== Math.round(r.height * dpr)) { cv.width = Math.round(r.width * dpr); cv.height = Math.round(r.height * dpr); }
+  const W = cv.width, H = cv.height, padL = 40 * dpr, padB = 18 * dpr, padT = 8 * dpr, padR = 8 * dpr; g.clearRect(0, 0, W, H);
+  const rows = Sim.hist, c = CH[chartVar]; const vals = rows.map(c.f).filter(v => v !== null && isFinite(v));
+  let lo = Math.min(0, ...vals), hi = Math.max(1, ...vals); if (chartVar === 'vbat') { lo = Math.min(6, ...vals); hi = Math.max(8.4, ...vals); }
+  const stp = niceStep(hi - lo || 1); lo = Math.floor(lo / stp) * stp; hi = Math.ceil(hi / stp) * stp; if (hi === lo) hi = lo + stp;
+  const X = i => padL + (W - padL - padR) * i / 599, Y = v => H - padB - (H - padB - padT) * (v - lo) / (hi - lo);
+  g.font = `${10 * dpr}px "IBM Plex Mono", monospace`; g.textAlign = 'right'; g.textBaseline = 'middle';
+  for (let v = lo; v <= hi + 1e-9; v += stp) { g.strokeStyle = css('--line'); g.lineWidth = dpr; g.beginPath(); g.moveTo(padL, Y(v)); g.lineTo(W - padR, Y(v)); g.stroke(); g.fillStyle = css('--muted'); g.fillText(String(+v.toFixed(2)).replace('.', ','), padL - 5 * dpr, Y(v)); }
+  g.textAlign = 'left'; g.textBaseline = 'alphabetic'; g.fillText(c.lbl, padL + 4 * dpr, padT + 10 * dpr);
+  g.textAlign = 'right'; g.fillText('ahora', W - padR, H - 4 * dpr); g.textAlign = 'left'; g.fillText('hace 60 s', padL, H - 4 * dpr);
+  const off = 600 - rows.length; g.strokeStyle = css('--mint'); g.lineWidth = 2 * dpr; g.lineJoin = 'round'; g.beginPath(); let started = false;
+  rows.forEach((row, i) => { const v = c.f(row); if (v === null || !isFinite(v)) { started = false; return; } const x = X(i + off), y = Y(v); if (started) g.lineTo(x, y); else g.moveTo(x, y); started = true; });
+  g.stroke();
+  const lastRow = rows[rows.length - 1]; if (lastRow && c.f(lastRow) !== null) { g.fillStyle = css('--mint'); g.beginPath(); g.arc(X(599), Y(c.f(lastRow)), 3.5 * dpr, 0, 7); g.fill(); }
+}
+
+/* ---------- Banco de pruebas ---------- */
+let testRes = [];
+$('bRunTests').addEventListener('click', async () => {
+  const b = $('bRunTests'); b.disabled = true; $('testsBody').innerHTML = '<tr><td colspan="3" class="muted">Ejecutando…</td></tr>';
+  try { testRes = await Sim.runTests(m => { $('testsStatus').textContent = 'Ejecutando: ' + m + '…'; }); }
+  catch (e) { console.error(e); $('testsStatus').textContent = 'No se pudieron completar las pruebas: ' + e.message; }
+  b.disabled = false;
+  if (testRes.length) {
+    $('testsBody').innerHTML = testRes.map(r => `<tr><td>${r.prueba}</td><td class="mono"><b>${r.resultado}</b></td><td class="muted">${r.detalle}</td></tr>`).join('');
+    $('testsStatus').textContent = `Listo: ${testRes.length} pruebas con ${fmt(Sim.robotMass(), 2)} kg de robot, χ = ${fmt(Sim.st.slip)} y batería al 90 %.`;
+    $('bTestsCsv').disabled = $('bTestsCopy').disabled = false;
+  }
+});
+const testsCsv = () => 'prueba,resultado,detalle\n' + testRes.map(r => [r.prueba, r.resultado, r.detalle].map(x => '"' + String(x).replace(/"/g, '""') + '"').join(',')).join('\n');
+$('bTestsCsv').addEventListener('click', () => download('pruebas-simuladas-ugv.csv', testsCsv()));
+$('bTestsCopy').addEventListener('click', () => { const txt = 'Prueba\tResultado\tDetalle\n' + testRes.map(r => [r.prueba, r.resultado, r.detalle].join('\t')).join('\n');
+  navigator.clipboard.writeText(txt).then(() => UGV.emit('toast', 'Tabla copiada: pégala en Word o Excel.')).catch(() => UGV.emit('toast', 'No se pudo copiar; usa “Descargar CSV”.')); });
+
+/* ---------- Código de la ESP32 ---------- */
+$('bCode').addEventListener('click', () => {
+  const { code, missing } = UGV.genCode(); const m = $('modal');
+  m.querySelector('.m-body').innerHTML = `<div class="code-wrap"><h2 id="mTitle">Programa base para la ESP32</h2>
+    <p class="muted">Generado con los pines del circuito actual. ${missing.length ? `<b class="warn-t">Faltan conexiones: ${missing.join(', ')}.</b>` : 'Todas las señales del L298N están conectadas.'} Ábrelo en Arduino IDE con la placa “ESP32 Dev Module”.</p>
+    <div class="row"><button class="btn small" id="cCopy">Copiar código</button><button class="btn small" id="cDl">Descargar .ino</button></div>
+    <pre class="code"><code>${code.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</code></pre></div>`;
+  m.hidden = false; document.body.classList.add('modal-open');
+  $('cCopy').onclick = () => navigator.clipboard.writeText(code).then(() => UGV.emit('toast', 'Código copiado.')).catch(() => UGV.emit('toast', 'No se pudo copiar; usa “Descargar .ino”.'));
+  $('cDl').onclick = () => download('ugv_orugas.ino', code, 'text/plain;charset=utf-8');
+});
+
+/* ---------- Presupuesto ---------- */
+const prices = (() => { try { return JSON.parse(localStorage.getItem('ugv-precios') || '{}'); } catch (_) { return {}; } })();
+const QTY = { aruco: 4 };
+const money = v => '$ ' + Math.round(v).toLocaleString('es-CO');
+const bomParts = () => UGV.PARTS.filter(p => p.id !== 'box');
+function renderBom() {
+  $('bomBody').innerHTML = bomParts().map(p => { const q = QTY[p.id] || 1, pr = +prices[p.id] || 0;
+    return `<tr><td>${p.name}</td><td><span class="chip ${UGV.isOn(p.id) ? 'st-on' : 'st-off'}">${UGV.isOn(p.id) ? 'Montada' : 'Falta'}</span></td><td class="mono">${q}</td>
+      <td><input class="price" type="number" min="0" step="500" inputmode="numeric" id="pr-${p.id}" value="${pr || ''}" placeholder="0" aria-label="Precio de ${p.name}"></td><td class="r mono" id="st-${p.id}">${money(q * pr)}</td></tr>`; }).join('');
+  bomParts().forEach(p => $('pr-' + p.id).addEventListener('input', e => { prices[p.id] = +e.target.value || 0; try { localStorage.setItem('ugv-precios', JSON.stringify(prices)); } catch (_) { } $('st-' + p.id).textContent = money((QTY[p.id] || 1) * prices[p.id]); bomTotal(); }));
+  bomTotal();
+}
+function bomTotal() { $('bomTotal').textContent = money(bomParts().reduce((s, p) => s + (QTY[p.id] || 1) * (+prices[p.id] || 0), 0)); }
+$('bBomCsv').addEventListener('click', () => download('presupuesto-ugv.csv', 'pieza,estado,cantidad,precio_unitario_cop,subtotal_cop\n' + bomParts().map(p => { const q = QTY[p.id] || 1, pr = +prices[p.id] || 0; return `"${p.name}",${UGV.isOn(p.id) ? 'montada' : 'falta'},${q},${pr},${q * pr}`; }).join('\n')));
+UGV.on('parts', renderBom); renderBom();
 
 /* Tiles de la pestaña Proyecto */
 const tiles = [['180 × 165 × 60', 'mm · chasis'], ['7,4 V', '2 × 18650 de 3,7 V'], ['≈ 0,8 kg', 'masa con electrónica'], ['≈ 40 cm/s', 'velocidad tope estimada'], ['2 A', 'por canal del L298N'], ['192.168.4.1', 'app de control WiFi']];

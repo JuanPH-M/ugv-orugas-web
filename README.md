@@ -2,51 +2,29 @@
 
 Sitio web del prototipo de vehículo terrestre autónomo de orugas para el transporte de carga (Corporación Universitaria Rafael Núñez, 2025).
 
-Tiene cuatro secciones:
+## Abrir la página
 
-| Sección | Qué hace |
+**▶ [https://juanph-m.github.io/ugv-orugas-web/](https://juanph-m.github.io/ugv-orugas-web/)**
+
+Funciona en el computador y en el celular, en Chrome, Edge, Firefox o Safari actualizados.
+
+**Sin internet:** descarga el proyecto (botón verde **Code → Download ZIP** en GitHub), descomprímelo y abre `index.html` con doble clic.
+
+## Qué tiene
+
+| Sección | Para qué sirve |
 | --- | --- |
-| **Simulador** | Robot en 3D con el control de la app real: joystick, ruta, velocidad máxima, Luces, Bocina, Parar, Volver al inicio y Borrar ruta. Incluye modo automático con Pure Pursuit sobre marcadores ArUco, vista desde la cámara del robot, cables en 3D y piezas que se pueden mover. |
-| **Circuito** | Esquema interactivo con el cableado ESP32 → L298N → motores. Se pueden agregar piezas, conectar pines y borrar cables. Una revisión eléctrica avisa de cortocircuitos y de tensiones peligrosas en los GPIO. |
-| **Piezas** | Catálogo con modelo 3D, especificaciones, pines y conexiones de cada pieza, montada o faltante. |
-| **Proyecto** | Resumen del trabajo, arquitectura y supuestos del modelo. |
+| **Simulador** | Robot en 3D, montado como el real: caja blanca adelante, portapilas atrás, L298N al centro y cables con sus colores. Se maneja como la app del robot (joystick, ruta, velocidad máxima, Luces, Bocina, Parar, Volver al inicio). Tiene modo automático con Pure Pursuit, rutas que se dibujan en el piso, carga de 0 a 2 kg, cajas como obstáculos, gráficas en vivo, descarga de datos en CSV y fotos de la vista. |
+| **Circuito** | Esquema interactivo ESP32 → L298N → motores. Se agregan piezas, se conectan pines y se borran cables; la revisión eléctrica avisa de cortocircuitos y tensiones peligrosas. Genera el programa base de la ESP32 con los pines del cableado. |
+| **Piezas** | Ficha de cada pieza con modelo 3D, especificaciones, pines y conexiones. |
+| **Pruebas** | Banco de pruebas simulado (recto, giro, seguimiento de ruta, frenado, carga y autonomía) con tabla para copiar a Word o Excel. |
+| **Proyecto** | Resumen, arquitectura, supuestos del modelo y presupuesto con precios editables. |
 
-## Cómo abrirlo
-
-**Sin instalar nada:** abre `index.html` con doble clic. Funciona sin internet; con internet carga además las fuentes tipográficas.
-
-**Con un servidor local** (opcional):
-
-```bash
-python -m http.server 8000
-```
-
-y entra a `http://localhost:8000`.
-
-## Publicarlo en GitHub Pages
-
-1. Crea un repositorio en GitHub y sube esta carpeta.
-2. En el repositorio: **Settings → Pages → Source: Deploy from a branch**, rama `main`, carpeta `/ (root)`.
-3. La página queda en `https://<usuario>.github.io/<repositorio>/`.
-
-## Estructura
-
-```
-index.html        página principal
-css/styles.css    estilos (tema claro y oscuro)
-js/data.js        piezas, pines y conexiones  ← aquí se cambian datos
-js/models.js      modelos 3D de cada pieza
-js/state.js       estado guardado y revisión eléctrica
-js/sim.js         simulador 3D, física y control
-js/circuit.js     esquema interactivo
-js/catalog.js     catálogo de piezas
-js/app.js         interfaz y pestañas
-vendor/           three.js r147 (copia local, licencia MIT)
-```
+Los cambios (piezas, posiciones, cables, cajas y precios) se guardan en el navegador. **Proyecto → Restablecer todo** vuelve a la configuración original.
 
 ## Supuestos del modelo
 
-Valores tomados de las fichas del vendedor o estimados; conviene medirlos y actualizarlos en `js/data.js` y `js/sim.js` (objeto `P`).
+Valores de las fichas del vendedor o estimados; cuando los midan, se actualizan en `js/sim.js` (objeto `P`) y `js/data.js`.
 
 | Dato | Valor | Origen |
 | --- | --- | --- |
@@ -55,7 +33,6 @@ Valores tomados de las fichas del vendedor o estimados; conviene medirlos y actu
 | Rueda de tracción | ≈ 52 mm | Estimado de fotos |
 | Baterías | 2 × 18650 de 3,7 V en serie (7,4 V), 2600 mAh | Código LGABB41865, verificar |
 | Caída del L298N | 1,8 V | Típico |
-| Corriente por motor | 0,1 A + 0,9 A × PWM | Estimado, medir |
+| Fricción | rodadura 0,06 · lateral 0,45 | Estimado para cerámica |
+| Diferencia entre motores | 2 % | Estimado |
 | Deslizamiento χ | 1,6 | Ajustable en el simulador |
-
-Los cambios (piezas montadas, posiciones y cables) se guardan en el navegador. El botón **Restablecer todo** en la pestaña Proyecto vuelve a la configuración original.

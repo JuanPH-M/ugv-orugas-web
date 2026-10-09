@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&family=Saira+Condensed:wght@600;700;800&display=swap">
-<link rel="stylesheet" href="css/styles.css?v=7">
+<link rel="stylesheet" href="css/styles.css?v=13">
 <script>try{var t=localStorage.getItem('ugv-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
 </head>
 <body>
@@ -21,6 +21,7 @@
     <a role="tab" href="#simulador" data-tab="sim">Simulador</a>
     <a role="tab" href="#circuito" data-tab="circ">Circuito</a>
     <a role="tab" href="#piezas" data-tab="parts">Piezas</a>
+    <a role="tab" href="#pruebas" data-tab="tests">Pruebas</a>
     <a role="tab" href="#proyecto" data-tab="proj">Proyecto</a>
   </nav>
   <button class="icon-btn" id="themeBtn" aria-label="Cambiar tema claro u oscuro" title="Tema claro / oscuro">
@@ -44,6 +45,7 @@
           <div class="batt-bar"><i id="hBatBar"></i></div>
         </div>
         <div class="hud-row"><span class="lbl">Sensor frontal</span><span class="mono" id="hD">sin sensor</span></div>
+        <div class="hud-row"><span class="lbl">Masa total</span><span class="mono" id="hMass">–</span></div>
         <div class="hud-row" id="hErrRow" hidden><span class="lbl">Error de ruta</span><span class="mono" id="hErr">0 cm</span></div>
       </div>
       <div class="viewbar">
@@ -54,8 +56,9 @@
           <button data-view="robotcam" aria-pressed="false">Cámara</button>
         </div>
         <div class="seg" role="group" aria-label="Capas">
-          <button id="tWires" aria-pressed="false">Cables</button>
+          <button id="tWires" aria-pressed="true">Cables</button>
           <button id="tOpen" aria-pressed="false">Ver interior</button>
+          <button id="bSnap" title="Descargar una imagen de la vista">Foto</button>
         </div>
       </div>
       <div class="drawer" id="drawer" hidden>
@@ -94,6 +97,28 @@
       <div class="row">
         <button class="btn go" id="bInicio" style="flex:1.4 1 0">Volver al inicio</button>
         <button class="btn" id="bBorrar">Borrar ruta</button>
+      </div>
+      <div class="card">
+        <div class="card-h"><h2>Carga transportada</h2><small id="loadLbl">0,0 kg</small></div>
+        <input type="range" id="load" min="0" max="2" step="0.1" value="0" aria-label="Carga en kilogramos">
+        <p class="muted small" id="loadNote">Pon peso encima de la caja y mira cómo cambian la velocidad, la corriente y la capacidad de girar.</p>
+      </div>
+      <div class="card">
+        <div class="card-h"><h2>Gráficas en vivo</h2><small>últimos 60 s</small></div>
+        <div class="seg chart-tabs" role="group" aria-label="Variable">
+          <button data-chart="v" aria-pressed="true">Velocidad</button><button data-chart="i" aria-pressed="false">Corriente</button><button data-chart="vbat" aria-pressed="false">Batería</button><button data-chart="err" aria-pressed="false">Error</button>
+        </div>
+        <canvas id="chart" aria-label="Gráfica de telemetría"></canvas>
+        <div class="row"><button class="btn small" id="bCsv">Descargar datos (CSV)</button></div>
+      </div>
+      <div class="card">
+        <div class="card-h"><h2>Ruta personalizada</h2><small id="wpCount">0 puntos</small></div>
+        <p class="muted small">Dibuja tu propia ruta tocando el piso y el modo automático la recorre con Pure Pursuit.</p>
+        <div class="row"><button class="btn small" id="bDraw" aria-pressed="false">Dibujar en el piso</button><button class="btn small" id="bClearWp">Borrar puntos</button></div>
+      </div>
+      <div class="card">
+        <div class="card-h"><h2>Escenario</h2><small>cajas de cartón</small></div>
+        <div class="row"><button class="btn small" id="bAddObs">Poner caja delante</button><button class="btn small" id="bClrObs">Quitar cajas</button><button class="btn small" id="bDefObs">Cajas originales</button></div>
       </div>
       <div class="card">
         <div class="card-h"><h2>Telemetría</h2><small>ESP32 → L298N</small></div>
@@ -137,6 +162,7 @@
       <div class="card" id="inspector"></div>
       <div class="card"><div class="card-h"><h2>Revisión eléctrica</h2></div><div id="warnings" class="warns"></div></div>
       <div class="card"><div class="card-h"><h2>Consumo de corriente</h2><small>en vivo</small></div><div id="budget"></div></div>
+      <div class="card"><div class="card-h"><h2>Código para la ESP32</h2><small>Arduino</small></div><p class="muted small">Genera un programa base con los pines del cableado actual: punto de acceso WiFi, control de motores y freno con el sensor si está conectado.</p><div class="row"><button class="btn small" id="bCode">Ver código</button></div></div>
     </aside>
   </section>
 
@@ -150,6 +176,19 @@
       </div>
     </div>
     <div class="pgrid" id="pgrid"></div>
+  </section>
+
+  <!-- ===================== PRUEBAS ===================== -->
+  <section id="tab-tests" class="tab tests" data-tab="tests" aria-label="Pruebas simuladas" hidden>
+    <div class="proj-in">
+      <p class="eyebrow">Objetivo específico 5 · validación</p>
+      <h1 class="proj-title">Banco de pruebas simulado</h1>
+      <p class="lead">Ejecuta en el gemelo digital las mismas pruebas que harán con el robot real: recorrido recto, giro en el sitio, seguimiento de ruta con y sin compensación, frenado, carga y autonomía. Sirve para preparar el protocolo y comparar después con las mediciones físicas.</p>
+      <div class="row"><button class="btn go" id="bRunTests" style="flex:0 0 auto">Ejecutar pruebas</button><button class="btn" id="bTestsCsv" style="flex:0 0 auto" disabled>Descargar CSV</button><button class="btn" id="bTestsCopy" style="flex:0 0 auto" disabled>Copiar tabla</button></div>
+      <p class="muted small" id="testsStatus">Usa la configuración actual del robot (piezas, cableado, deslizamiento y batería).</p>
+      <div class="card"><div class="tbl-wrap"><table class="results"><thead><tr><th>Prueba</th><th>Resultado</th><th>Detalle</th></tr></thead><tbody id="testsBody"><tr><td colspan="3" class="muted">Todavía no hay resultados.</td></tr></tbody></table></div></div>
+      <p class="muted small">Estos resultados vienen de un modelo con valores estimados. No reemplazan las pruebas físicas: úsalos como referencia y reporta en el informe los datos medidos.</p>
+    </div>
   </section>
 
   <!-- ===================== PROYECTO ===================== -->
@@ -185,6 +224,10 @@
           <tr><td>Corriente por motor</td><td>0,1 A + 0,9 A × PWM</td><td>Estimado; medir con amperímetro</td></tr>
           <tr><td>Deslizamiento χ</td><td>1,6 (ajustable)</td><td>Rango típico de orugas en piso liso</td></tr>
         </tbody></table></div></div>
+      <div class="card"><div class="card-h"><h2>Lista de materiales y presupuesto</h2><small>escribe los precios</small></div>
+        <div class="tbl-wrap"><table class="bom"><thead><tr><th>Pieza</th><th>Estado</th><th>Cant.</th><th>Precio unitario (COP)</th><th class="r">Subtotal</th></tr></thead><tbody id="bomBody"></tbody><tfoot><tr><td colspan="4"><b>Total</b></td><td class="r mono" id="bomTotal">$ 0</td></tr></tfoot></table></div>
+        <div class="row"><button class="btn small" id="bBomCsv">Descargar presupuesto (CSV)</button></div>
+        <p class="muted small">Los precios se guardan en este navegador.</p></div>
       <p class="muted small">Funciona sin conexión: abre <code>index.html</code> en el navegador. Guarda tus cambios (piezas, posiciones y cables) en este navegador. <button class="linkbtn" id="resetAll">Restablecer todo</button></p>
     </div>
   </section>
@@ -195,15 +238,16 @@
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-<script src="vendor/three.min.js?v=7"></script>
-<script src="vendor/OrbitControls.js?v=7"></script>
-<script src="vendor/RoomEnvironment.js?v=7"></script>
-<script src="js/data.js?v=7"></script>
-<script src="js/models.js?v=7"></script>
-<script src="js/state.js?v=7"></script>
-<script src="js/sim.js?v=7"></script>
-<script src="js/circuit.js?v=7"></script>
-<script src="js/catalog.js?v=7"></script>
-<script src="js/app.js?v=7"></script>
+<script src="vendor/three.min.js?v=13"></script>
+<script src="vendor/OrbitControls.js?v=13"></script>
+<script src="vendor/RoomEnvironment.js?v=13"></script>
+<script src="js/data.js?v=13"></script>
+<script src="js/models.js?v=13"></script>
+<script src="js/state.js?v=13"></script>
+<script src="js/sim.js?v=13"></script>
+<script src="js/circuit.js?v=13"></script>
+<script src="js/catalog.js?v=13"></script>
+<script src="js/code.js?v=13"></script>
+<script src="js/app.js?v=13"></script>
 </body>
 </html>

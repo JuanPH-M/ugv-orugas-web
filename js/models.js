@@ -5,8 +5,8 @@ const T = THREE;
 
 /* ---------- Medidas del chasis ---------- */
 const G = UGV.GEOM = {
-  TRACK_Z: 6.25, TRACK_W: 4.0, TX: 6.0, YC: 3.0, BR: 2.85, WR: 2.6, PLATE_Y: 5.5,
-  PLATE_L: 13.4, PLATE_W: 8.4
+  TRACK_Z: 6.25, TRACK_W: 4.4, TX: 6.0, YC: 3.17, BR: 2.75, WR: 2.64, PLATE_Y: 5.5,
+  PLATE_L: 13.4, PLATE_W: 7.8, MOTOR_Z: 1.75
 };
 G.WB = 2 * G.TRACK_Z;
 G.LSTR = 2 * G.TX;
@@ -34,6 +34,10 @@ const M = UGV.MAT = {
   alu: std(0x1e2124, { roughness: .62, metalness: .55 }),
   plasticDark: std(0x0d0e0f, { roughness: .82, envMapIntensity: .3 }),
   plasticGray: std(0x6c7177, { roughness: .7 }),
+  track: std(0x0b0c0d, { roughness: .62, envMapIntensity: .35 }),
+  wheel: std(0x464b52, { roughness: .62, envMapIntensity: .35 }),
+  wheelDark: std(0x2f3237, { roughness: .6 }),
+  wheelLight: std(0x5a5f66, { roughness: .6, envMapIntensity: .35 }),
   plasticLight: std(0x8f949a, { roughness: .6 }),
   steel: std(0xc7cbd0, { roughness: .28, metalness: .95 }),
   steelDark: std(0x8d9298, { roughness: .35, metalness: .9 }),
@@ -128,14 +132,30 @@ function trackPt(s) {
 }
 UGV.trackPt = trackPt;
 
+/* Une varias geometrías en una sola (para instanciar un eslabón completo) */
+function mergeGeos(list) {
+  let pos = [], nor = [];
+  list.forEach(g => { const n = g.index ? g.toNonIndexed() : g; pos.push(n.attributes.position.array); nor.push(n.attributes.normal.array); });
+  const cat = arrs => { const L = arrs.reduce((s, a) => s + a.length, 0), out = new Float32Array(L); let o = 0; arrs.forEach(a => { out.set(a, o); o += a.length; }); return out; };
+  const g = new T.BufferGeometry(); g.setAttribute('position', new T.BufferAttribute(cat(pos), 3)); g.setAttribute('normal', new T.BufferAttribute(cat(nor), 3)); return g;
+}
 function linkGeometry() {
-  const s = new T.Shape();
-  s.moveTo(-.4, -.14); s.lineTo(.4, -.14); s.lineTo(.4, .1); s.lineTo(.2, .12); s.lineTo(.13, .44); s.lineTo(-.13, .44); s.lineTo(-.2, .12); s.lineTo(-.4, .1); s.closePath();
-  const g = new T.ExtrudeGeometry(s, { depth: G.TRACK_W, bevelEnabled: true, bevelThickness: .04, bevelSize: .03, bevelSegments: 1 });
-  g.translate(0, 0, -G.TRACK_W / 2); return g;
+  const W = G.TRACK_W, parts = [];
+  const add = (geo, x, y, z, ry = 0) => { geo.rotateY(ry); geo.translate(x, y, z); parts.push(geo); };
+  // placa base del eslabón con bisel
+  const base = new T.Shape(); base.moveTo(-.44, -.11); base.lineTo(.44, -.11); base.lineTo(.47, .02); base.lineTo(.42, .11); base.lineTo(-.42, .11); base.lineTo(-.47, .02); base.closePath();
+  const bg = new T.ExtrudeGeometry(base, { depth: W - .2, bevelEnabled: true, bevelThickness: .05, bevelSize: .04, bevelSegments: 1 }); bg.translate(0, 0, -(W - .2) / 2); parts.push(bg);
+  // tacos en V (tres secciones) como los de la foto
+  const cleat = () => { const c = new T.Shape(); c.moveTo(-.16, 0); c.lineTo(.16, 0); c.lineTo(.09, .31); c.lineTo(-.09, .31); c.closePath(); return new T.ExtrudeGeometry(c, { depth: 1.0, bevelEnabled: false }); };
+  [[-1.35, .32], [0, -.32], [1.35, .32]].forEach(([z, r]) => { const g = cleat(); g.translate(0, 0, -.5); add(g, 0, .11, z, r); });
+  // salientes laterales (las "puntas" que se ven de lado)
+  [-1, 1].forEach(sd => add(new T.BoxGeometry(.28, .26, .3), 0, .1, sd * (W / 2 + .05)));
+  // diente guía interior (engrana con la rueda dentada)
+  add(new T.BoxGeometry(.34, .34, .7), 0, -.27, 0);
+  return mergeGeos(parts);
 }
 function sprocketGeometry() {
-  const s = new T.Shape(), n = 20, ro = G.WR + .38, ri = G.WR - .02;
+  const s = new T.Shape(), n = 22, ro = G.WR + .42, ri = G.WR - .02;
   for (let i = 0; i < n; i++) {
     const a0 = i / n * Math.PI * 2, a1 = (i + .28) / n * Math.PI * 2, a2 = (i + .5) / n * Math.PI * 2, a3 = (i + .72) / n * Math.PI * 2;
     const P = (r, a) => [r * Math.cos(a), r * Math.sin(a)];
@@ -181,33 +201,32 @@ UGV.buildChassis = function () {
     bx(G.PLATE_L, 2.4, .2, M.alu, root, 0, G.PLATE_Y - 1.3, s * (G.PLATE_W / 2 - .1));
   });
   // soportes de los motores y de las ruedas locas
-  [[G.TX, -1], [-G.TX, 1]].forEach(([x, s]) => { bx(3.8, 3.6, .22, M.alu, root, x, G.YC + .9, s * 4.45); });
-  [[-G.TX, -1], [G.TX, 1]].forEach(([x, s]) => { bx(1.8, 3.4, .22, M.alu, root, x, G.YC + 1.0, s * 4.45); screwHead(root, x, G.YC, s * 4.6, .25, s < 0 ? '-z' : 'z'); });
+  [[G.TX, -1], [-G.TX, 1]].forEach(([x, s]) => { bx(3.8, 3.4, .22, M.alu, root, x, G.YC + .85, s * 3.98); });
+  [[-G.TX, -1], [G.TX, 1]].forEach(([x, s]) => { bx(1.8, 3.2, .22, M.alu, root, x, G.YC + .9, s * 3.98); screwHead(root, x, G.YC, s * 4.12, .25, s < 0 ? '-z' : 'z'); cy(.28, .5, M.steel, root, x, G.YC, s * 4.0, 'z', 6); });
 
-  const link = linkGeometry(), guideG = new T.BoxGeometry(.32, .34, .5), spr = sprocketGeometry(), idl = idlerGeometry();
+  const link = linkGeometry(), spr = sprocketGeometry(), idl = idlerGeometry();
   const tracks = {};
   [-1, 1].forEach(side => {
-    const zc = side * G.TRACK_Z, N = 46;
-    const inst = new T.InstancedMesh(link, M.plasticDark, N); inst.castShadow = true; inst.receiveShadow = true; root.add(inst);
-    const guide = new T.InstancedMesh(guideG, M.plasticDark, N); guide.castShadow = true; root.add(guide);
+    const zc = side * G.TRACK_Z, N = 40;
+    const inst = new T.InstancedMesh(link, M.track, N); inst.castShadow = true; inst.receiveShadow = true; root.add(inst);
     const sprX = side < 0 ? G.TX : -G.TX, idlX = -sprX;
     const sg = new T.Group(); sg.position.set(sprX, G.YC, zc); root.add(sg);
-    mesh(spr, M.plasticGray, sg); cy(.85, 1.6, M.plasticGray, sg, 0, 0, 0, 'z', 24);
+    mesh(spr, M.wheel, sg); cy(.95, 1.5, M.wheel, sg, 0, 0, 0, 'z', 24); cy(.62, 1.6, M.wheelDark, sg, 0, 0, 0, 'z', 20);
+    for (let i = 0; i < 22; i++) { const a = i / 22 * Math.PI * 2; cy(.06, 1.2, M.wheelDark, sg, Math.cos(a) * 2.25, Math.sin(a) * 2.25, 0, 'z', 6); }
     cy(.3, 1.9, M.steel, sg, 0, 0, -side * .2, 'z', 12);
     const ig = new T.Group(); ig.position.set(idlX, G.YC, zc); root.add(ig);
-    mesh(idl, M.plasticLight, ig);
+    mesh(idl, M.wheelLight, ig); cy(1.05, 1.62, M.wheel, ig, 0, 0, 0, 'z', 28);
     for (let i = 0; i < 6; i++) { const a = i / 6 * Math.PI * 2; cy(.11, .3, M.plasticGray, ig, Math.cos(a) * .8, Math.sin(a) * .8, side * .68, 'z', 10); }
     cy(.22, .4, M.steel, ig, 0, 0, side * .7, 'z', 6);
-    tracks[side] = { inst, guide, spr: sg, idl: ig, zc, N, off: 0 };
+    tracks[side] = { inst, spr: sg, idl: ig, zc, N, off: 0 };
   });
   const d = new T.Object3D();
   function updateTrack(t) {
     for (let i = 0; i < t.N; i++) {
       const [x, y, ang] = trackPt(i * G.LTOT / t.N + t.off);
       d.position.set(x, y, t.zc); d.rotation.set(0, 0, ang); d.updateMatrix(); t.inst.setMatrixAt(i, d.matrix);
-      d.translateY(-.3); d.updateMatrix(); t.guide.setMatrixAt(i, d.matrix);
     }
-    t.inst.instanceMatrix.needsUpdate = t.guide.instanceMatrix.needsUpdate = true;
+    t.inst.instanceMatrix.needsUpdate = true;
     t.spr.rotation.z = -t.off / G.WR; t.idl.rotation.z = -t.off / G.WR;
   }
   updateTrack(tracks[-1]); updateTrack(tracks[1]);
@@ -371,7 +390,8 @@ B.box = () => {
   const t = tex(512, 512, (c, w, h) => { c.fillStyle = '#dedbd2'; c.fillRect(0, 0, w, h); for (let i = 0; i < 1800; i++) { c.fillStyle = `rgba(120,110,90,${Math.random() * .05})`; c.fillRect(Math.random() * w, Math.random() * h, 2, 2); }
     c.strokeStyle = 'rgba(0,0,0,.08)'; c.lineWidth = 3; c.beginPath(); c.moveTo(0, 30); c.lineTo(w, 30); c.stroke(); });
   const m = std(0xffffff, { map: t, roughness: .95 });
-  const b = rbox(9.5, 7.0, 8.5, .18, m, g, 0, 0, 0); b.userData.isBox = true;
+  const b = rbox(9.4, 6.6, 8.2, .12, m, g, 0, 0, 0); b.userData.isBox = true;
+  bx(.02, 6.4, .02, std(0xcfcbc0), g, 2.2, 3.3, 4.11); // pliegue del cartón
   return { g, pins: {} };
 };
 
@@ -471,7 +491,7 @@ B.enc = () => {
   const one = (x, z, s) => { const e = new T.Group(); e.position.set(x, G.YC, z); g.add(e);
     cy(1.55, .12, std(0x1c6f39), e, 0, 0, 0, 'z', 32); cy(.75, .3, M.black, e, 0, 0, s * .2, 'z', 24);
     bx(1.2, .5, .5, M.white, e, 0, 1.15, s * .2); };
-  const zA = -G.TRACK_Z + 2.1 + 2.15 + 3.9, zB = -zA;
+  const zA = -G.MOTOR_Z + 3.9, zB = -zA;
   one(G.TX, zA, 1); one(-G.TX, zB, -1);
   pins.A1 = V(G.TX - .3, G.YC + 1.4, zA); pins.B1 = V(G.TX, G.YC + 1.4, zA); pins.VCC = V(G.TX + .3, G.YC + 1.4, zA);
   pins.A2 = V(-G.TX - .3, G.YC + 1.4, zB); pins.B2 = V(-G.TX, G.YC + 1.4, zB); pins.GND = V(-G.TX + .3, G.YC + 1.4, zB);
@@ -483,18 +503,18 @@ B.chassis = () => { const c = UGV.buildChassis(); return { g: c.group, pins: {},
 /* Posición de cada pieza en el robot (local: +x adelante, +z derecha, y arriba) */
 UGV.PLACE = {
   chassis: { pos: [0, 0, 0] },
-  motorA: { pos: [G.TX, G.YC, -G.TRACK_Z + 2.1 + 2.15], fixed: true },
-  motorB: { pos: [-G.TX, G.YC, G.TRACK_Z - 2.1 - 2.15], fixed: true },
-  battery: { pos: [-4.75, G.PLATE_Y, 0] },
-  l298n: { pos: [-.2, G.PLATE_Y, -1.6] },
-  esp32: { pos: [4.05, G.PLATE_Y, 2.4] },
-  rpi: { pos: [2.05, G.PLATE_Y, 0] },
-  box: { pos: [2.0, G.PLATE_Y, 0] },
+  motorA: { pos: [G.TX, G.YC, -G.MOTOR_Z], fixed: true },
+  motorB: { pos: [-G.TX, G.YC, G.MOTOR_Z], fixed: true },
+  battery: { pos: [-5.7, G.PLATE_Y + .95, 0], tilt: -.24 },
+  l298n: { pos: [-.4, G.PLATE_Y, -.6] },
+  esp32: { pos: [4.6, G.PLATE_Y, 2.1] },
+  rpi: { pos: [2.6, G.PLATE_Y, 0] },
+  box: { pos: [2.6, G.PLATE_Y, 0] },
   switch: { pos: [-6.9, G.PLATE_Y - 1.2, 2.8], rot: Math.PI / 2 },
-  buck: { pos: [-.7, G.PLATE_Y, 3.1] },
-  cam: { pos: [6.85, G.PLATE_Y + 4.4, 0] },
-  imu: { pos: [.0, G.PLATE_Y + 7.0, 0] },
-  sonar: { pos: [7.15, G.PLATE_Y + .05, 0] },
+  buck: { pos: [-.5, G.PLATE_Y, 2.7] },
+  cam: { pos: [7.4, G.PLATE_Y + 4.0, 0] },
+  imu: { pos: [.4, G.PLATE_Y + 6.6, 0] },
+  sonar: { pos: [7.45, G.PLATE_Y + .05, 0] },
   divider: { pos: [5.3, G.PLATE_Y, -3.3] },
   leds: { pos: [6.95, G.PLATE_Y - 1.0, 0] },
   buzzer: { pos: [5.6, G.PLATE_Y, -2.0] },
