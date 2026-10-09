@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>UGV de Orugas · Gemelo Digital</title>
+<meta name="description" content="Gemelo digital del prototipo de vehículo terrestre autónomo de orugas: simulador 3D, circuito interactivo y catálogo de piezas.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&family=Saira+Condensed:wght@600;700;800&display=swap">
+<link rel="stylesheet" href="css/styles.css?v=7">
+<script>try{var t=localStorage.getItem('ugv-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="#simulador" aria-label="Inicio">
+    <svg viewBox="0 0 40 24" aria-hidden="true"><rect x="2" y="9" width="36" height="12" rx="6" fill="none" stroke="currentColor" stroke-width="2.4"/><circle cx="9" cy="15" r="3" fill="currentColor"/><circle cx="31" cy="15" r="3" fill="currentColor"/><rect x="12" y="2" width="16" height="7" rx="1.5" fill="currentColor"/></svg>
+    <span><b>UGV de orugas</b><small>Gemelo digital del prototipo</small></span>
+  </a>
+  <nav class="tabs" role="tablist" aria-label="Secciones">
+    <a role="tab" href="#simulador" data-tab="sim">Simulador</a>
+    <a role="tab" href="#circuito" data-tab="circ">Circuito</a>
+    <a role="tab" href="#piezas" data-tab="parts">Piezas</a>
+    <a role="tab" href="#proyecto" data-tab="proj">Proyecto</a>
+  </nav>
+  <button class="icon-btn" id="themeBtn" aria-label="Cambiar tema claro u oscuro" title="Tema claro / oscuro">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9z" fill="currentColor"/></svg>
+  </button>
+</header>
+
+<main>
+  <!-- ===================== SIMULADOR ===================== -->
+  <section id="tab-sim" class="tab sim" data-tab="sim" aria-label="Simulador 3D">
+    <div class="stage">
+      <canvas id="gl" aria-label="Vista 3D del robot"></canvas>
+      <div class="cam-overlay" id="camOverlay" aria-hidden="true"></div>
+      <div class="hud" aria-live="off">
+        <div class="hud-main">
+          <div><span class="lbl">Velocidad</span><b id="hV">0,0</b><span class="unit">cm/s</span></div>
+          <div><span class="lbl">Giro</span><b id="hW">0</b><span class="unit">°/s</span></div>
+        </div>
+        <div class="batt" title="Estado de la batería">
+          <div class="batt-row"><span class="lbl">Batería</span><span class="mono" id="hBat">8,1 V · 86 %</span></div>
+          <div class="batt-bar"><i id="hBatBar"></i></div>
+        </div>
+        <div class="hud-row"><span class="lbl">Sensor frontal</span><span class="mono" id="hD">sin sensor</span></div>
+        <div class="hud-row" id="hErrRow" hidden><span class="lbl">Error de ruta</span><span class="mono" id="hErr">0 cm</span></div>
+      </div>
+      <div class="viewbar">
+        <div class="seg" role="group" aria-label="Cámara">
+          <button data-view="orbit" aria-pressed="true">Órbita</button>
+          <button data-view="follow" aria-pressed="false">Seguir</button>
+          <button data-view="top" aria-pressed="false">Cenital</button>
+          <button data-view="robotcam" aria-pressed="false">Cámara</button>
+        </div>
+        <div class="seg" role="group" aria-label="Capas">
+          <button id="tWires" aria-pressed="false">Cables</button>
+          <button id="tOpen" aria-pressed="false">Ver interior</button>
+        </div>
+      </div>
+      <div class="drawer" id="drawer" hidden>
+        <div class="drawer-head"><div><span class="chip" id="dCat"></span><h3 id="dName"></h3></div><button class="icon-btn sm" id="dClose" aria-label="Cerrar">✕</button></div>
+        <p id="dShort" class="muted"></p>
+        <div class="row">
+          <button class="btn small" id="dInfo">Ficha completa</button>
+          <button class="btn small" id="dRot">Rotar 90°</button>
+          <button class="btn small" id="dReset">Posición original</button>
+          <button class="btn small" id="dToggle">Quitar</button>
+        </div>
+      </div>
+      <p class="stage-hint">Arrastra para girar · rueda para acercar · arrastra una pieza para moverla · W A S D para manejar · espacio para frenar</p>
+    </div>
+
+    <aside class="panel">
+      <div class="seg wide" role="group" aria-label="Modo de manejo">
+        <button data-mode="manual" aria-pressed="true">Manual</button>
+        <button data-mode="auto" aria-pressed="false">Automático · Pure Pursuit</button>
+      </div>
+      <div class="joy" id="joy" role="application" aria-label="Joystick: arrastra para mover el robot"><div class="knob" id="knob"></div></div>
+      <div class="card">
+        <div class="card-h"><h2>Ruta</h2><small id="routeSec">0,0 s guardados</small></div>
+        <canvas id="route" aria-label="Mapa de la ruta recorrida"></canvas>
+        <div class="legend"><span><i class="lg real"></i>Real</span><span id="lgEst" hidden><i class="lg est"></i>Estimada por odometría</span><span id="lgRef" hidden><i class="lg ref"></i>Ruta automática</span></div>
+      </div>
+      <div class="card">
+        <div class="card-h"><h2>Velocidad máxima</h2><small id="vmaxLbl">100%</small></div>
+        <input type="range" id="vmax" min="10" max="100" value="100" aria-label="Velocidad máxima">
+      </div>
+      <div class="row">
+        <button class="btn" id="bLuces" aria-pressed="false">Luces</button>
+        <button class="btn" id="bBocina">Bocina</button>
+        <button class="btn stop" id="bParar">Parar</button>
+      </div>
+      <div class="row">
+        <button class="btn go" id="bInicio" style="flex:1.4 1 0">Volver al inicio</button>
+        <button class="btn" id="bBorrar">Borrar ruta</button>
+      </div>
+      <div class="card">
+        <div class="card-h"><h2>Telemetría</h2><small>ESP32 → L298N</small></div>
+        <div class="pwm">
+          <span>Motor A</span><div class="bar"><i id="pwmA"></i></div><span class="mono" id="pwmAv">0</span>
+          <span>Motor B</span><div class="bar"><i id="pwmB"></i></div><span class="mono" id="pwmBv">0</span>
+        </div>
+        <div class="pins" id="pinsMini"></div>
+        <dl class="kv two">
+          <dt>Corriente</dt><dd id="tI">0 mA</dd>
+          <dt>Autonomía</dt><dd id="tAut">—</dd>
+        </dl>
+      </div>
+      <div class="card">
+        <div class="card-h"><h2>Modelo físico</h2><small>valores estimados</small></div>
+        <label class="lbl-row" for="slip">Deslizamiento en giros <b id="slipLbl">χ = 1,6</b></label>
+        <input type="range" id="slip" min="100" max="250" value="160">
+        <label class="check"><input type="checkbox" id="comp" checked> El control compensa el deslizamiento (usa χ al calcular los giros)</label>
+        <label class="lbl-row" for="tscale">Velocidad de descarga de la batería</label>
+        <select id="tscale"><option value="1">Tiempo real</option><option value="30">× 30</option><option value="120">× 120</option></select>
+        <p class="muted small" id="physNote"></p>
+        <div class="row"><button class="btn small" id="bReset">Robot al centro</button><button class="btn small" id="bRecharge">Cargar batería</button></div>
+      </div>
+    </aside>
+  </section>
+
+  <!-- ===================== CIRCUITO ===================== -->
+  <section id="tab-circ" class="tab circ" data-tab="circ" aria-label="Circuito interactivo" hidden>
+    <aside class="palette" id="palette" aria-label="Piezas"></aside>
+    <div class="sch-wrap" id="schWrap">
+      <div class="sch-tools">
+        <button class="btn small" id="cFit">Ajustar</button>
+        <button class="btn small" id="cZin" aria-label="Acercar">+</button>
+        <button class="btn small" id="cZout" aria-label="Alejar">−</button>
+        <button class="btn small" id="cRestore">Restaurar cableado</button>
+      </div>
+      <p class="sch-hint" id="schHint" hidden></p>
+      <div class="sch-legend"><span><i style="background:var(--w-red)"></i>7,4 V</span><span><i style="background:var(--w-5v)"></i>5 V</span><span><i style="background:var(--w-3v3)"></i>3,3 V</span><span><i style="background:var(--w-gnd)"></i>GND</span><span><i style="background:var(--w-sig)"></i>Señal</span><span><i style="background:var(--w-bus)"></i>Datos</span><span><i style="background:var(--w-mot)"></i>Motor</span></div>
+    </div>
+    <aside class="insp">
+      <div class="card" id="inspector"></div>
+      <div class="card"><div class="card-h"><h2>Revisión eléctrica</h2></div><div id="warnings" class="warns"></div></div>
+      <div class="card"><div class="card-h"><h2>Consumo de corriente</h2><small>en vivo</small></div><div id="budget"></div></div>
+    </aside>
+  </section>
+
+  <!-- ===================== PIEZAS ===================== -->
+  <section id="tab-parts" class="tab parts" data-tab="parts" aria-label="Catálogo de piezas" hidden>
+    <div class="parts-head">
+      <div><h1>Piezas del robot</h1><p class="muted">Toca una pieza para ver su modelo 3D, especificaciones y conexiones. Las marcadas “Falta” se pueden agregar al robot.</p></div>
+      <div class="filters seg" id="filters" role="group" aria-label="Filtrar">
+        <button data-f="all" aria-pressed="true">Todas</button><button data-f="on" aria-pressed="false">Montadas</button><button data-f="off" aria-pressed="false">Faltan</button>
+        <button data-f="potencia" aria-pressed="false">Potencia</button><button data-f="control" aria-pressed="false">Control</button><button data-f="sensor" aria-pressed="false">Sensores</button>
+      </div>
+    </div>
+    <div class="pgrid" id="pgrid"></div>
+  </section>
+
+  <!-- ===================== PROYECTO ===================== -->
+  <section id="tab-proj" class="tab proj" data-tab="proj" aria-label="Proyecto" hidden>
+    <div class="proj-in">
+      <p class="eyebrow">Corporación Universitaria Rafael Núñez · Ingeniería de Sistemas · 2025</p>
+      <h1 class="proj-title">Prototipo de vehículo terrestre autónomo de orugas para el transporte de carga</h1>
+      <p class="lead">Gabriel Enrique Zambrano Mosquera · Juan Pablo Hoyos Manjarres<br><span class="muted">Director: Miguel Alberto Caro Álvarez</span></p>
+      <div class="tiles" id="tiles"></div>
+      <div class="cols">
+        <div class="card"><h2>Objetivo general</h2><p>Diseñar y construir un prototipo de vehículo terrestre autónomo de orugas para el transporte de carga en ambientes interiores, integrando locomoción controlada, localización por visión artificial, navegación autónoma y detección de obstáculos, y evaluar su viabilidad técnica con pruebas en un entorno controlado.</p></div>
+        <div class="card"><h2>Arquitectura</h2>
+          <ol class="arch">
+            <li><b>Potencia:</b> 2 celdas 18650 de 3,7 V en serie (7,4 V) → L298N → motores 33GB520.</li>
+            <li><b>Bajo nivel:</b> ESP32 genera el PWM (GPIO 14 y 32) y el sentido de giro (GPIO 27, 26, 25 y 33) y sirve la app en 192.168.4.1.</li>
+            <li><b>Alto nivel:</b> Raspberry Pi 3 con cámara para leer marcadores ArUco y planificar la ruta.</li>
+            <li><b>Control:</b> Pure Pursuit con compensación del deslizamiento y fusión de sensores (EKF).</li>
+          </ol></div>
+      </div>
+      <div class="card"><h2>Qué muestra este gemelo digital</h2>
+        <ul class="steps">
+          <li><b>Simulador:</b> maneja el robot como en la app real. El modo automático recorre los marcadores con Pure Pursuit; desactiva la compensación para ver cómo crece el error de seguimiento.</li>
+          <li><b>Odometría:</b> con encoders montados aparece la posición estimada (línea punteada). Sin IMU ni cámara se aleja de la real por el deslizamiento; con ellas se corrige.</li>
+          <li><b>Circuito:</b> el esquema refleja las conexiones reales. Si conectas un pin mal, la revisión eléctrica lo marca y el simulador deja de mover ese motor.</li>
+        </ul></div>
+      <div class="card"><h2>Supuestos del modelo</h2>
+        <div class="tbl-wrap"><table><thead><tr><th>Dato</th><th>Valor usado</th><th>Origen</th></tr></thead><tbody>
+          <tr><td>Chasis</td><td>180 × 165 × 60 mm, 482 g</td><td>Ficha del vendedor</td></tr>
+          <tr><td>Motores</td><td>9–12 V, 3,5 kg·cm, 100 mA sin carga; 350 RPM a 12 V</td><td>Ficha del vendedor (RPM: extremo del rango)</td></tr>
+          <tr><td>Rueda de tracción</td><td>≈ 52 mm de diámetro</td><td>Estimado de fotos</td></tr>
+          <tr><td>Caída del L298N</td><td>1,8 V</td><td>Típico de puente bipolar</td></tr>
+          <tr><td>Baterías</td><td>2 × 3,7 V nominal (8,4 V llenas, 6,0 V vacías), 2600 mAh</td><td>Código LGABB41865 (verificar)</td></tr>
+          <tr><td>Corriente por motor</td><td>0,1 A + 0,9 A × PWM</td><td>Estimado; medir con amperímetro</td></tr>
+          <tr><td>Deslizamiento χ</td><td>1,6 (ajustable)</td><td>Rango típico de orugas en piso liso</td></tr>
+        </tbody></table></div></div>
+      <p class="muted small">Funciona sin conexión: abre <code>index.html</code> en el navegador. Guarda tus cambios (piezas, posiciones y cables) en este navegador. <button class="linkbtn" id="resetAll">Restablecer todo</button></p>
+    </div>
+  </section>
+</main>
+
+<div class="modal" id="modal" hidden role="dialog" aria-modal="true" aria-labelledby="mTitle">
+  <div class="m-card"><button class="icon-btn m-close" data-close aria-label="Cerrar">✕</button><div class="m-body"></div></div>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="vendor/three.min.js?v=7"></script>
+<script src="vendor/OrbitControls.js?v=7"></script>
+<script src="vendor/RoomEnvironment.js?v=7"></script>
+<script src="js/data.js?v=7"></script>
+<script src="js/models.js?v=7"></script>
+<script src="js/state.js?v=7"></script>
+<script src="js/sim.js?v=7"></script>
+<script src="js/circuit.js?v=7"></script>
+<script src="js/catalog.js?v=7"></script>
+<script src="js/app.js?v=7"></script>
+</body>
+</html>
