@@ -301,12 +301,12 @@ function loadMission() {
   UGV.emit('mission', mission);
 }
 Sim.loadMission = loadMission;
-/* Tramo activo: del punto anterior hasta el final, en el sentido actual */
+/* Tramo activo: línea recta del punto que se dejó al punto siguiente (no corta esquinas) */
 function activePath() {
-  const m = st.ms, pts = mission.map(p => [p.x, p.z]);
-  if (pts.length < 2) return { pts: [[st.x, st.z], [st.x + 1, st.z]], closed: false };
-  if (m.dir > 0) return { pts: pts.slice(Math.max(0, m.i - 1)), closed: false };
-  return { pts: pts.slice(0, Math.min(pts.length, m.i + 2)).reverse(), closed: false };
+  const m = st.ms;
+  if (mission.length < 2) return { pts: [[st.x, st.z], [st.x + 1, st.z]], closed: false };
+  const to = mission[clamp(m.i, 0, mission.length - 1)], from = mission[clamp(m.i - m.dir, 0, mission.length - 1)];
+  return { pts: from === to ? [[st.x, st.z], [to.x, to.z]] : [[from.x, from.z], [to.x, to.z]], closed: false };
 }
 Sim.activePath = activePath;
 function updateRef() {
@@ -347,7 +347,7 @@ Sim.confirm = () => { // el recolector confirma la carga o la descarga
 };
 function arrivalRadius(p) {
   if (p.tipo === 'acopio' && UGV.isOn('aruco') && UGV.isOn('cam') && rpiOK()) return 18;
-  if (!st.est) return 25;
+  if (!st.est) return 10;
   return S.gnssMode === 'rtk' && gnssOK() ? 30 : gnssOK() ? 250 : 120;
 }
 
@@ -596,7 +596,7 @@ function step(dt) {
     if (m.wait) { m.waitT += dt; if (m.autoConfirm && m.waitT > 3) Sim.confirm(); }
     else if (target && !m.done) {
       const efx = Math.cos(pose.yaw), efz = -Math.sin(pose.yaw);
-      const path = activePath(), v0 = Math.abs(st.vl + st.vr) / 2, Ld = 45 + .9 * v0, [tx, tz, , end] = lookahead(path, pose.x, pose.z, Ld);
+      const path = activePath(), v0 = Math.abs(st.vl + st.vr) / 2, Ld = Math.min(45 + .9 * v0, Math.max(20, Math.hypot(target.x - pose.x, target.z - pose.z))), [tx, tz, , end] = lookahead(path, pose.x, pose.z, Ld);
       const dx = tx - pose.x, dz = tz - pose.z, yL = dx * efz - dz * efx, lx = dx * efx + dz * efz;
       const dTarget = Math.hypot(target.x - pose.x, target.z - pose.z);
       if (dTarget < arrivalRadius(target) || (end && Math.hypot(dx, dz) < 8)) {
@@ -609,7 +609,9 @@ function step(dt) {
         const k = 2 * yL / (Ld * Ld), top = Math.max(1, Sim.vTop()), slowDown = dTarget < 120 ? .55 : 1;
         const v = .7 * st.vmax * top * slowDown, w = v * k;
         L = clamp((v - w * G.WB * chiEst / 2) / top, -1, 1); R = clamp((v + w * G.WB * chiEst / 2) / top, -1, 1);
-        if (lx < Ld * .35) { const sg = yL >= 0 ? 1 : -1; L = -.6 * sg * st.vmax; R = .6 * sg * st.vmax; }
+        // si el siguiente tramo arranca con un giro grande, gira primero en el sitio y luego avanza recto
+        const head = Math.atan2(dx * efz - dz * efx, dx * efx + dz * efz);
+        if (Math.abs(head) > .6 || lx < Ld * .35) { const sg = head >= 0 ? 1 : -1, pw = Math.abs(head) > .25 ? .6 : .35; L = -pw * sg * st.vmax; R = pw * sg * st.vmax; }
       }
     }
     const cl = closest(activePath(), st.x, st.z); st.err = cl.d; st.errAcc += cl.d * cl.d; st.errN++;

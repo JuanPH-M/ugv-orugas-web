@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&family=Saira+Condensed:wght@600;700;800&display=swap">
-<link rel="stylesheet" href="css/styles.css?v=18">
+<link rel="stylesheet" href="css/styles.css?v=20">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 40 24%22%3E%3Crect x=%222%22 y=%229%22 width=%2236%22 height=%2212%22 rx=%226%22 fill=%22none%22 stroke=%22%231f9a6c%22 stroke-width=%223%22/%3E%3Crect x=%2212%22 y=%222%22 width=%2216%22 height=%227%22 rx=%221.5%22 fill=%22%231f9a6c%22/%3E%3C/svg%3E">
 <script>try{var t=localStorage.getItem('ugv-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
 </head>
@@ -129,10 +129,10 @@
       <div class="card">
         <div class="card-h"><h2>Finca y comunicación</h2><small>escenario</small></div>
         <div class="row"><button class="btn small" id="bAddObs">Poner bulto delante</button><button class="btn small" id="bClrObs">Quitar bultos</button><button class="btn small" id="bDefObs">Bultos originales</button></div>
-        <label class="lbl-row" for="gnssMode">Corrección GNSS</label>
-        <select id="gnssMode"><option value="auto">Autónomo · NEO-M8N (≈ 2 m)</option><option value="rtk">RTK · ZED-F9P (≈ 2 cm)</option></select>
+        <div id="gnssBox"><label class="lbl-row" for="gnssMode">Corrección GNSS</label>
+        <select id="gnssMode"><option value="auto">Autónomo · NEO-M8N (≈ 2 m)</option><option value="rtk">RTK · ZED-F9P (≈ 2 cm)</option></select></div>
         <div class="row"><button class="btn small" id="bLink" aria-pressed="false">Cortar enlace LoRa</button><button class="btn small" id="bOverview">Ver toda la finca</button></div>
-        <p class="muted small">Bajo los árboles de sombrío el error del GNSS se triplica. Para circular por las calles de 1 m entre surcos hace falta RTK.</p>
+        <p class="muted small">El receptor GNSS, la radio LoRa y el paro de emergencia todavía no están montados: agrégalos en Piezas o en Circuito y aparecen aquí sus controles. Bajo los árboles el error del GNSS se triplica; entre surcos hace falta RTK.</p>
       </div>
       <div class="card">
         <div class="card-h"><h2>Telemetría</h2><small>Raspberry Pi ⇄ ESP32 → L298N</small></div>
@@ -266,17 +266,17 @@
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-<script src="vendor/three.min.js?v=18"></script>
-<script src="vendor/OrbitControls.js?v=18"></script>
-<script src="vendor/RoomEnvironment.js?v=18"></script>
-<script src="js/data.js?v=18"></script>
-<script src="js/models.js?v=18"></script>
-<script src="js/state.js?v=18"></script>
-<script src="js/sim.js?v=18"></script>
-<script src="js/circuit.js?v=18"></script>
-<script src="js/catalog.js?v=18"></script>
-<script src="js/code.js?v=18"></script>
-<script src="js/codepi.js?v=18"></script>
-<script src="js/app.js?v=18"></script>
+<script src="vendor/three.min.js?v=20"></script>
+<script src="vendor/OrbitControls.js?v=20"></script>
+<script src="vendor/RoomEnvironment.js?v=20"></script>
+<script src="js/data.js?v=20"></script>
+<script src="js/models.js?v=20"></script>
+<script src="js/state.js?v=20"></script>
+<script src="js/sim.js?v=20"></script>
+<script src="js/circuit.js?v=20"></script>
+<script src="js/catalog.js?v=20"></script>
+<script src="js/code.js?v=20"></script>
+<script src="js/codepi.js?v=20"></script>
+<script src="js/app.js?v=20"></script>
 </body>
 </html>

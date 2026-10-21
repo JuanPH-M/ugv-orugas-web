@@ -104,7 +104,7 @@ UGV.PARTS = [
     sch: { x: 40, y: 220 }
   },
   {
-    id: 'buck', name: 'Convertidor DC-DC 5 V', cat: 'potencia', on: false, need: true, mass: 15,
+    id: 'buck', name: 'Convertidor DC-DC 5 V', cat: 'potencia', on: true, mass: 15,
     short: 'Reductor tipo LM2596 / XL4015, 5 V 3 A',
     desc: 'Necesario para alimentar la Raspberry Pi 3 desde las baterías. El regulador del L298N no entrega los 2,5 A que la Pi puede pedir.',
     specs: [['Entrada', '7–24 V'], ['Salida', '5,1 V ajustable'], ['Corriente', '3 A'], ['Eficiencia', '≈ 85 %'], ['Medidas', '43 × 21 mm']],
@@ -210,7 +210,7 @@ UGV.WIRES = [
   { a: 'estop.AUX', b: 'esp32.D5', sig: 'ESTOP' },
   { a: 'battery.BAT-', b: 'l298n.GND' },
   { a: 'l298n.GND', b: 'esp32.GND' },
-  { a: 'l298n.5V', b: 'esp32.VIN', unless: 'buck' }, { a: 'buck.OUT+', b: 'esp32.VIN' },
+  { a: 'l298n.5V', b: 'esp32.VIN' },
   { a: 'esp32.D14', b: 'l298n.ENA', sig: 'ENA' }, { a: 'esp32.D27', b: 'l298n.IN1', sig: 'IN1' },
   { a: 'esp32.D26', b: 'l298n.IN2', sig: 'IN2' }, { a: 'esp32.D25', b: 'l298n.IN3', sig: 'IN3' },
   { a: 'esp32.D33', b: 'l298n.IN4', sig: 'IN4' }, { a: 'esp32.D32', b: 'l298n.ENB', sig: 'ENB' },
@@ -226,7 +226,7 @@ UGV.WIRES = [
   { a: 'lora.TXD', b: 'esp32.D18', sig: 'LORA' }, { a: 'esp32.D19', b: 'lora.RXD', sig: 'LORA' },
   { a: 'esp32.3V3', b: 'imu.VCC' }, { a: 'esp32.GND', b: 'imu.GND' },
   { a: 'esp32.D21', b: 'imu.SDA', sig: 'I2C' }, { a: 'esp32.D22', b: 'imu.SCL', sig: 'I2C' },
-  { a: 'l298n.5V', b: 'sonar.VCC', unless: 'buck' }, { a: 'buck.OUT+', b: 'sonar.VCC' }, { a: 'esp32.GND', b: 'sonar.GND' },
+  { a: 'l298n.5V', b: 'sonar.VCC' }, { a: 'esp32.GND', b: 'sonar.GND' },
   { a: 'esp32.D23', b: 'sonar.TRIG', sig: 'TRIG' },
   { a: 'sonar.ECHO', b: 'esp32.D13', unless: 'divider', sig: 'ECHO' },
   { a: 'sonar.ECHO', b: 'divider.IN', sig: 'ECHO' }, { a: 'divider.OUT', b: 'esp32.D13', sig: 'ECHO' }, { a: 'divider.GND', b: 'esp32.GND' },

@@ -114,7 +114,8 @@ UGV.analyze = (vbat = 7.4) => {
     W.push({ lvl: 'warn', parts: ['rpi', 'esp32'], text: 'La Raspberry Pi y la ESP32 no están unidas por el puerto serie (GPIO 14/15 ↔ RX2/TX2): el modo automático no puede mandar órdenes a los motores.' });
   else if (S.on.rpi && S.on.esp32 && netOf('rpi.GND') !== netOf('esp32.GND')) W.push({ lvl: 'warn', parts: ['rpi', 'esp32'], text: 'La Raspberry Pi y la ESP32 no comparten tierra: el enlace serie no funcionará.' });
   if (S.on.estop && S.estopPressed) W.push({ lvl: 'info', parts: ['estop'], text: 'Paro de emergencia pulsado: los motores no tienen potencia. Suéltalo para volver a moverte.' });
-  if (S.on.l298n && !S.on.estop) W.push({ lvl: 'info', parts: ['estop'], text: 'Falta el paro de emergencia físico en la línea de potencia de los motores (requisito RNF6).' });
+  if (S.on.estop && S.on.esp32 && (groups[netOf('esp32.VIN')] || []).includes('l298n.5V')) W.push({ lvl: 'info', parts: ['esp32', 'estop'], text: 'La ESP32 toma 5 V del regulador del L298N: al pulsar el paro también se apaga. El informe recomienda alimentarla desde el DC-DC.' });
+  if (S.on.l298n && !S.on.estop) W.push({ lvl: 'info', parts: ['estop'], text: 'Todavía no está montado el paro de emergencia físico que pide el informe (requisito RNF6).' });
   if (S.on.esp32 && (vAt('esp32.VIN') || 0) < 4.5) W.push({ lvl: 'warn', parts: ['esp32'], text: 'La ESP32 no recibe 5 V en VIN.' });
   if (S.on.l298n && (vAt('l298n.12V') || 0) < 6) W.push({ lvl: 'warn', parts: ['l298n'], text: S.on.switch && !S.switchClosed ? 'Interruptor apagado: el L298N no tiene energía.' : 'El L298N no recibe la tensión de las baterías.' });
   ['motorA', 'motorB'].forEach(m => { if (S.on[m] && (groups[netOf(m + '.M+')] || []).length < 2) W.push({ lvl: 'info', parts: [m], text: `${UGV.part(m).name} no está conectado al driver.` }); });

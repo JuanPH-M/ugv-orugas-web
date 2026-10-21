@@ -48,13 +48,8 @@ toggle('tWires', on => Sim.setWires(on)); toggle('tOpen', on => Sim.setOpen(on))
 
 // modo
 document.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => {
-  if (b.dataset.mode === 'auto') { // la misión necesita la Raspberry Pi encendida y, en campo abierto, el GNSS
-    const add = [];
-    if (!UGV.isOn('rpi')) { S.on.rpi = true; add.push('Raspberry Pi'); }
-    if (!UGV.isOn('buck')) { S.on.buck = true; add.push('convertidor DC-DC de 5 V'); }
-    if (!UGV.isOn('gnss')) { S.on.gnss = true; add.push('receptor GNSS'); }
-    if (add.length) { UGV.save(); UGV.emit('parts'); UGV.emit('wires'); UGV.emit('toast', 'Se agregaron ' + add.join(', ') + ': la Raspberry Pi ejecuta la misión y se localiza con el GNSS.'); }
-  }
+  if (b.dataset.mode === 'auto' && Sim.rpiOK() && !Sim.gnssOK() && !UGV.isOn('enc'))
+    UGV.emit('toast', 'Sin receptor GNSS ni encoders montados, el gemelo usa la posición ideal del robot. Agrégalos en Piezas para ver el error real.');
   Sim.setMode(b.dataset.mode);
 }));
 UGV.on('mode', m => { document.querySelectorAll('[data-mode]').forEach(b => b.setAttribute('aria-pressed', b.dataset.mode === m)); $('hErrRow').hidden = m !== 'auto'; });
@@ -81,10 +76,13 @@ $('simspeed').addEventListener('change', e => { Sim.st.simSpeed = +e.target.valu
 $('gnssMode').value = S.gnssMode || 'auto';
 $('gnssMode').addEventListener('change', e => { S.gnssMode = e.target.value; UGV.save(); UGV.emit('toast', S.gnssMode === 'rtk' ? 'RTK: error de ≈ 2 cm en campo abierto (≈ 45 cm bajo los árboles). Permite circular entre surcos.' : 'GNSS autónomo: error de ≈ 2 m, suficiente para el camino de servicio, no para las calles entre surcos.'); });
 $('bLink').addEventListener('click', () => { const on = $('bLink').getAttribute('aria-pressed') !== 'true'; $('bLink').setAttribute('aria-pressed', on); $('bLink').textContent = on ? 'Restablecer enlace' : 'Cortar enlace LoRa'; Sim.setLinkCut(on);
-  if (on) UGV.emit('toast', UGV.isOn('lora') ? 'Enlace LoRa cortado: si el robot se mueve, en 1 s entra en PARADA DE EMERGENCIA.' : 'Sin radio LoRa el robot depende del WiFi de respaldo; se simula igual la pérdida del latido del operador.'); });
+  if (on) UGV.emit('toast', 'Enlace LoRa cortado: si el robot se mueve, en 1 s entra en PARADA DE EMERGENCIA.'); });
 $('bOverview').addEventListener('click', () => { Sim.overview(); UGV.emit('view', 'field'); });
+const syncControls = () => { $('bEstop').hidden = !UGV.isOn('estop'); $('bLink').hidden = !UGV.isOn('lora'); $('gnssBox').hidden = !UGV.isOn('gnss');
+  if (!UGV.isOn('estop') && S.estopPressed) Sim.setEstop(false); };
+UGV.on('parts', syncControls); syncControls();
 $('bEstop').addEventListener('click', () => {
-  if (!UGV.isOn('estop')) { UGV.setOn('estop', true); UGV.emit('toast', 'Se montó el paro de emergencia en la línea de potencia del L298N.'); }
+  if (!UGV.isOn('estop')) return;
   const on = !S.estopPressed; Sim.setEstop(on); $('bEstop').setAttribute('aria-pressed', on); $('bEstop').textContent = on ? 'Soltar paro de emergencia' : 'Paro de emergencia';
   if (!on) UGV.emit('toast', 'Paro liberado. Pulsa “Rearmar” para volver a operar.'); });
 $('bEstop').setAttribute('aria-pressed', !!S.estopPressed); if (S.estopPressed) $('bEstop').textContent = 'Soltar paro de emergencia';
@@ -130,12 +128,12 @@ UGV.on('telemetry', t => {
   const bb = $('hBatBar'); bb.style.width = (t.soc * 100) + '%'; bb.dataset.lvl = t.soc < .15 ? 'low' : t.soc < .35 ? 'mid' : 'ok';
   $('hD').textContent = t.sonar ? (t.dist === null ? '> 450 cm' : Math.round(t.dist) + ' cm') : (UGV.isOn('sonar') ? 'sin conexión' : 'sin sensor');
   const sb = $('hState'); sb.textContent = t.state; sb.dataset.s = t.state.split(' ')[0];
-  $('hGnss').textContent = t.gnss ? `${t.gnss.rtk ? 'RTK' : 'autónomo'} ±${t.gnss.sigma >= 100 ? fmt(t.gnss.sigma / 100) + ' m' : Math.round(t.gnss.sigma) + ' cm'}${t.gnss.canopy ? ' · bajo árbol' : ''}` : (UGV.isOn('gnss') ? (t.rpiOK ? 'sin conexión USB' : 'Raspberry Pi apagada') : 'sin receptor');
+  $('hGnss').textContent = t.gnss ? `${t.gnss.rtk ? 'RTK' : 'autónomo'} ±${t.gnss.sigma >= 100 ? fmt(t.gnss.sigma / 100) + ' m' : Math.round(t.gnss.sigma) + ' cm'}${t.gnss.canopy ? ' · bajo árbol' : ''}` : (UGV.isOn('gnss') ? (t.rpiOK ? 'sin conexión USB' : 'Raspberry Pi apagada') : 'no montado');
   $('hSoil').textContent = `${t.soil}${Math.abs(t.grade) > .02 ? ' · ' + Math.round(t.grade * 57.2958) + '°' : ''}`;
   $('hTrips').textContent = `${t.ms.trips} ${t.ms.trips === 1 ? 'viaje' : 'viajes'} · ${fmt(t.ms.kg)} kg`;
   $('haltBanner').hidden = !t.halt; if (t.halt) $('haltWhy').textContent = t.halt;
   const chip = (ok, txt) => `<span class="lk ${ok ? 'on' : ''}">${txt}</span>`;
-  $('links').innerHTML = chip(t.rpiOK, 'UART Pi ⇄ ESP32') + chip(t.gnssOK, 'GNSS') + chip(t.loraOK && !t.linkCut, t.linkCut ? 'LoRa cortado' : 'LoRa');
+  $('links').innerHTML = chip(t.rpiOK, 'UART Pi ⇄ ESP32') + (UGV.isOn('gnss') ? chip(t.gnssOK, 'GNSS') : '') + (UGV.isOn('lora') ? chip(t.loraOK && !t.linkCut, t.linkCut ? 'LoRa cortado' : 'LoRa') : '');
   const cf = $('bConfirm'); cf.disabled = !t.ms.wait; cf.textContent = t.ms.wait === 'acopio' ? 'Confirmar descarga' : 'Confirmar carga';
   renderMission(t.ms);
   $('hErr').textContent = `${fmt(t.err || 0)} cm · RMS ${fmt(t.rms || 0)} cm`;
