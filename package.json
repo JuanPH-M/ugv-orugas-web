@@ -1,0 +1,12 @@
+{
+  "name": "ugv-orugas-web",
+  "version": "3.0.0",
+  "private": true,
+  "description": "Gemelo digital del UGV de orugas de bajo costo para el transporte de la cosecha en fincas (Raspberry Pi + ESP32).",
+  "scripts": {
+    "start": "python -m http.server 8765",
+    "test": "node tests/run.js",
+    "check": "node --check js/data.js && node --check js/state.js && node --check js/models.js && node --check js/sim.js && node --check js/circuit.js && node --check js/catalog.js && node --check js/code.js && node --check js/codepi.js && node --check js/app.js"
+  },
+  "license": "UNLICENSED"
+}

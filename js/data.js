@@ -40,7 +40,7 @@ UGV.PARTS = [
   {
     id: 'battery', name: 'Baterías 2 × 18650', cat: 'potencia', on: true, core: true, mass: 115,
     short: '2 celdas de 3,7 V en serie = 7,4 V nominal',
-    desc: 'Dos celdas de ion-litio de 3,7 V nominales cada una, en un portapilas en serie. Cargadas dan 8,4 V; por debajo de 6,0 V (3,0 V por celda) deben recargarse.',
+    desc: 'Dos celdas de ion-litio de 3,7 V nominales cada una, en un portapilas en serie. Cargadas dan 8,4 V; por debajo de 6,0 V (3,0 V por celda) deben recargarse. Para la finca se recomienda una tercera celda (11,1 V): compensa la caída del L298N y casi duplica la velocidad. En el simulador se elige en “Modelo físico”.',
     specs: [['Celdas', '2 × 18650 ion-litio (código LGABB41865)'], ['Tensión por celda', '3,7 V nominal · 4,2 V llena · 3,0 V vacía'], ['Pack en serie', '7,4 V nominal · 8,4 V lleno · 6,0 V vacío'], ['Capacidad', '≈ 2600 mAh (según el código de la celda, verificar)'], ['Energía', '≈ 19 Wh'], ['Masa', '2 × 46 g + portapilas']],
     pins: [{ id: 'BAT+', t: 'pwr', side: 'r', v: 7.4 }, { id: 'BAT-', t: 'gnd', side: 'r', v: 0 }],
     sch: { x: 40, y: 40 }
@@ -61,14 +61,17 @@ UGV.PARTS = [
   {
     id: 'esp32', name: 'ESP32 DevKit', cat: 'control', on: true, core: true, mass: 10,
     short: 'NodeMCU-32S, 30 pines, WiFi + Bluetooth',
-    desc: 'Cerebro de bajo nivel. Crea la red WiFi del robot, sirve la app de control en 192.168.4.1 y genera el PWM de los motores.',
+    desc: 'Controlador de bajo nivel y de seguridad. Cierra el lazo de velocidad de cada oruga, lee encoders, IMU y ultrasonido, recibe la radio LoRa del operador y detiene los motores si pierde las órdenes de la Raspberry Pi. También sirve una app WiFi de respaldo en 192.168.4.1.',
     specs: [['Módulo', 'ESP-WROOM-32 · doble núcleo 240 MHz'], ['Placa', 'DevKit 30 pines · 55 × 28 mm'], ['Lógica', '3,3 V (los GPIO no toleran 5 V)'], ['Alimentación', 'VIN 5 V o USB'], ['Red', 'Punto de acceso WiFi 192.168.4.1'], ['Consumo', '≈ 120 mA con WiFi activo']],
     pins: [
       { id: 'VIN', t: 'pwr', side: 'l' }, { id: 'GND', t: 'gnd', side: 'l' }, { id: '3V3', t: 'pwr', side: 'l', v: 3.3 },
       { id: 'D14', t: 'sig', side: 'r', gpio: true }, { id: 'D27', t: 'sig', side: 'r', gpio: true }, { id: 'D26', t: 'sig', side: 'r', gpio: true },
       { id: 'D25', t: 'sig', side: 'r', gpio: true }, { id: 'D33', t: 'sig', side: 'r', gpio: true }, { id: 'D32', t: 'sig', side: 'r', gpio: true },
+      { id: 'RX2', t: 'sig', side: 'r', gpio: true }, { id: 'TX2', t: 'sig', side: 'r', gpio: true },
+      { id: 'D18', t: 'sig', side: 'r', gpio: true }, { id: 'D19', t: 'sig', side: 'r', gpio: true },
+      { id: 'D23', t: 'sig', side: 'r', gpio: true }, { id: 'D13', t: 'sig', side: 'r', gpio: true },
       { id: 'D21', t: 'bus', side: 'l', gpio: true }, { id: 'D22', t: 'bus', side: 'l', gpio: true },
-      { id: 'D5', t: 'sig', side: 'l', gpio: true }, { id: 'D18', t: 'sig', side: 'l', gpio: true },
+      { id: 'D5', t: 'sig', side: 'l', gpio: true },
       { id: 'D2', t: 'sig', side: 'l', gpio: true }, { id: 'D4', t: 'sig', side: 'l', gpio: true },
       { id: 'D34', t: 'sig', side: 'l', gpio: true }, { id: 'D35', t: 'sig', side: 'l', gpio: true },
       { id: 'VP', t: 'sig', side: 'l', gpio: true }, { id: 'VN', t: 'sig', side: 'l', gpio: true }
@@ -77,10 +80,11 @@ UGV.PARTS = [
   },
   {
     id: 'rpi', name: 'Raspberry Pi 3 Model B', cat: 'control', on: true, core: true, mass: 42,
-    short: 'v1.2 · 4 núcleos 1,2 GHz · 1 GB RAM',
-    desc: 'Cerebro de alto nivel: procesa la cámara, detecta los marcadores ArUco y planifica la ruta. Va dentro de la caja, sobre separadores.',
-    specs: [['Procesador', 'BCM2837 · 4 × Cortex-A53 1,2 GHz'], ['Memoria', '1 GB LPDDR2'], ['Medidas', '85,6 × 56,5 × 17 mm'], ['Alimentación', '5 V · hasta 2,5 A'], ['Cámara', 'Conector CSI'], ['Consumo típico', '≈ 0,5–0,8 A procesando video']],
-    pins: [{ id: '5V', t: 'pwr', side: 'l' }, { id: 'GND', t: 'gnd', side: 'l' }, { id: 'CSI', t: 'bus', side: 'r' }],
+    short: 'Unidad central · 4 núcleos 1,2 GHz · 1 GB RAM',
+    desc: 'Componente central del vehículo. Ejecuta la máquina de estados y la misión por puntos (A → B → C → acopio), lee el GNSS, fusiona los sensores con el filtro de Kalman, calcula el Pure Pursuit, habla con la ESP32 por el puerto serie y con el operador por LoRa o WiFi, y guarda el registro de cada viaje. Va dentro de la caja, sobre separadores.',
+    specs: [['Procesador', 'BCM2837 · 4 × Cortex-A53 1,2 GHz'], ['Memoria', '1 GB LPDDR2'], ['Medidas', '85,6 × 56,5 × 17 mm'], ['Alimentación', '5 V · hasta 2,5 A'], ['Cámara', 'Conector CSI'], ['Enlace con la ESP32', 'UART en GPIO 14 (TX) y GPIO 15 (RX), 115 200 bit/s'], ['Consumo típico', '≈ 0,5–0,8 A procesando video']],
+    pins: [{ id: '5V', t: 'pwr', side: 'l' }, { id: 'GND', t: 'gnd', side: 'l' }, { id: 'CSI', t: 'bus', side: 'r' },
+      { id: 'TX', t: 'sig', side: 'r' }, { id: 'RX', t: 'sig', side: 'r' }, { id: 'USB', t: 'bus', side: 'r' }],
     sch: { x: 1000, y: 430 }
   },
   {
@@ -110,7 +114,7 @@ UGV.PARTS = [
   {
     id: 'cam', name: 'Cámara Raspberry Pi v2', cat: 'sensor', on: false, need: true, mass: 3,
     short: 'Sensor Sony IMX219 de 8 MP',
-    desc: 'Lee los marcadores ArUco para que el robot sepa dónde está. En el simulador activa la vista “Cámara”.',
+    desc: 'Lee el marcador ArUco del punto de acopio para la maniobra final de llegada, donde se necesita precisión de centímetros. En campo abierto la localización principal es el GNSS. En el simulador activa la vista “Cámara”.',
     specs: [['Sensor', 'Sony IMX219 · 8 MP'], ['Campo de visión', '62° horizontal'], ['Conexión', 'Cable plano CSI de 15 pines'], ['Medidas', '25 × 24 mm']],
     pins: [{ id: 'CSI', t: 'bus', side: 'l' }],
     sch: { x: 1270, y: 430 }
@@ -124,10 +128,10 @@ UGV.PARTS = [
     sch: { x: 40, y: 380 }
   },
   {
-    id: 'sonar', name: 'Sensor ultrasónico HC-SR04', cat: 'sensor', on: false, need: true, mass: 9,
-    short: 'Distancia 2–400 cm, lógica de 5 V',
-    desc: 'Detecta obstáculos al frente (OE4). Su salida ECHO es de 5 V: necesita un divisor de tensión antes de llegar a la ESP32. En el simulador, el robot frena solo a menos de 20 cm.',
-    specs: [['Rango', '2–400 cm'], ['Ángulo', '≈ 15°'], ['Alimentación', '5 V · 15 mA'], ['Salida ECHO', '5 V (requiere divisor)'], ['Medidas', '45 × 20 × 15 mm']],
+    id: 'sonar', name: 'Sensor ultrasónico JSN-SR04T', cat: 'sensor', on: false, need: true, mass: 14,
+    short: 'Distancia 25–450 cm, frente resistente al agua',
+    desc: 'Detecta obstáculos al frente (OE4). Se eligió en lugar del HC-SR04 y de los sensores láser porque su frente resiste el agua y no pierde alcance con el sol. Su salida ECHO es de 5 V: necesita un divisor de tensión. En el simulador el robot reduce la velocidad a menos de 150 cm y se detiene a menos de 60 cm.',
+    specs: [['Rango', '25–450 cm'], ['Ángulo', '< 50°'], ['Alimentación', '5 V · 30 mA'], ['Salida ECHO', '5 V (requiere divisor)'], ['Protección', 'Frente sellado contra agua'], ['Pines', 'TRIG en GPIO 23 · ECHO en GPIO 13']],
     pins: [{ id: 'VCC', t: 'pwr', side: 'r' }, { id: 'TRIG', t: 'sig', side: 'r' }, { id: 'ECHO', t: 'sig', side: 'r', v: 5.0, out5: true }, { id: 'GND', t: 'gnd', side: 'r' }],
     sch: { x: 40, y: 560 }
   },
@@ -165,21 +169,48 @@ UGV.PARTS = [
   },
   {
     id: 'aruco', name: 'Marcadores ArUco', cat: 'accesorio', on: false, need: true, mass: 0, noModel: true,
-    short: '4 marcadores impresos de 10 cm',
-    desc: 'Puntos de referencia de la ruta. Se ponen en el piso en las esquinas de un cuadrado de 120 cm; el modo automático los recorre con Pure Pursuit.',
-    specs: [['Diccionario', 'DICT_4X4_50'], ['Tamaño', '10 × 10 cm'], ['Cantidad', '4 (IDs 3 a 6)']],
+    short: '1 marcador plastificado en la entrada del acopio',
+    desc: 'En la finca ya no marcan toda la ruta: el GNSS cubre el campo abierto. El marcador se conserva en la entrada del punto de acopio, bajo techo, para que la cámara corrija la posición en los últimos metros y el robot se detenga frente a la báscula.',
+    specs: [['Diccionario', 'DICT_4X4_50'], ['Tamaño', '20 × 20 cm, plastificado'], ['Cantidad', '1 (ID 7) en el acopio']],
     pins: [], sch: null
+  },
+  /* ---------- Piezas nuevas para la operación en finca ---------- */
+  {
+    id: 'gnss', name: 'Receptor GNSS u-blox NEO-M8N', cat: 'sensor', on: false, need: true, mass: 24,
+    short: 'GPS + GLONASS/BeiDou, ≈ 2 m de precisión, por USB a la Raspberry Pi',
+    desc: 'Localización principal en campo abierto. La Raspberry Pi lee sus mensajes por un adaptador USB-serie y los fusiona con los encoders y la IMU. Bajo árboles de sombrío la precisión empeora; para circular entre surcos se recomienda la corrección RTK (módulo ZED-F9P).',
+    specs: [['Módulo', 'u-blox NEO-M8N con EEPROM'], ['Precisión', '≈ 2 m CEP autónomo · 0,01 m + 1 ppm con RTK (ZED-F9P)'], ['Actualización', 'hasta 10 Hz con dos constelaciones'], ['Conexión', 'Serie por adaptador USB a la Raspberry Pi'], ['Antena', 'En un mástil sobre la caja, lejos de los motores'], ['Precio', '$ 67.300 (Electronilab, oct. 2026)']],
+    pins: [{ id: 'USB', t: 'bus', side: 'l' }],
+    sch: { x: 1270, y: 600 }
+  },
+  {
+    id: 'lora', name: 'Radio LoRa E220-900T22D', cat: 'control', on: false, need: true, mass: 9,
+    short: '915 MHz · 22 dBm · enlace con el operador',
+    desc: 'Enlace de largo alcance con la estación del operador, en el segmento de 915 a 928 MHz de uso libre en Colombia. Va conectada a la ESP32 y no a la Raspberry Pi: así la orden de parada llega a la capa de tiempo real aunque el sistema operativo esté ocupado.',
+    specs: [['Chip', 'LLCC68 (LoRa)'], ['Banda', '915–928 MHz (uso libre en Colombia)'], ['Potencia', '22 dBm'], ['Interfaz', 'UART 3,3 V: TXD → GPIO 18, RXD ← GPIO 19'], ['Mensajes', 'Mando 5 Hz, latido 1 Hz, telemetría 1 Hz'], ['Precio', '$ 37.500 por unidad (se necesitan 2)']],
+    pins: [{ id: 'VCC', t: 'pwr', side: 'r' }, { id: 'GND', t: 'gnd', side: 'r' }, { id: 'TXD', t: 'sig', side: 'r' }, { id: 'RXD', t: 'sig', side: 'r' }],
+    sch: { x: 40, y: 960 }
+  },
+  {
+    id: 'estop', name: 'Paro de emergencia', cat: 'potencia', on: false, need: true, mass: 38,
+    short: 'Pulsador tipo hongo que corta la potencia de los motores',
+    desc: 'Corta físicamente la alimentación del L298N sin depender del software (ISO 13850). La Raspberry Pi y la ESP32 siguen encendidas y un contacto auxiliar avisa a la ESP32 en GPIO 5 para registrar el evento.',
+    specs: [['Tipo', 'Pulsador de hongo con enclavamiento'], ['Contactos', 'NC de potencia + NC auxiliar'], ['Corriente', '≥ 5 A'], ['Ubicación', 'Parte trasera, accesible desde ambos lados']],
+    pins: [{ id: 'IN', t: 'pwr', side: 'l' }, { id: 'OUT', t: 'pwr', side: 'r' }, { id: 'AUX', t: 'sig', side: 'r' }],
+    sch: { x: 330, y: 40 }
   }
 ];
 
 /* Conexiones. requires: piezas que deben estar montadas. unless: si esa pieza está montada, la conexión se reemplaza.
    Formato de extremo: 'pieza.pin' */
 UGV.WIRES = [
-  { a: 'battery.BAT+', b: 'l298n.12V', unless: 'switch' },
-  { a: 'battery.BAT+', b: 'switch.IN' }, { a: 'switch.OUT', b: 'l298n.12V' },
+  { a: 'battery.BAT+', b: 'l298n.12V', unless: ['switch', 'estop'] },
+  { a: 'battery.BAT+', b: 'switch.IN' }, { a: 'switch.OUT', b: 'l298n.12V', unless: 'estop' },
+  { a: 'battery.BAT+', b: 'estop.IN', unless: 'switch' }, { a: 'switch.OUT', b: 'estop.IN' }, { a: 'estop.OUT', b: 'l298n.12V' },
+  { a: 'estop.AUX', b: 'esp32.D5', sig: 'ESTOP' },
   { a: 'battery.BAT-', b: 'l298n.GND' },
   { a: 'l298n.GND', b: 'esp32.GND' },
-  { a: 'l298n.5V', b: 'esp32.VIN' },
+  { a: 'l298n.5V', b: 'esp32.VIN', unless: 'buck' }, { a: 'buck.OUT+', b: 'esp32.VIN' },
   { a: 'esp32.D14', b: 'l298n.ENA', sig: 'ENA' }, { a: 'esp32.D27', b: 'l298n.IN1', sig: 'IN1' },
   { a: 'esp32.D26', b: 'l298n.IN2', sig: 'IN2' }, { a: 'esp32.D25', b: 'l298n.IN3', sig: 'IN3' },
   { a: 'esp32.D33', b: 'l298n.IN4', sig: 'IN4' }, { a: 'esp32.D32', b: 'l298n.ENB', sig: 'ENB' },
@@ -189,12 +220,16 @@ UGV.WIRES = [
   { a: 'battery.BAT-', b: 'buck.IN-' },
   { a: 'buck.OUT+', b: 'rpi.5V' }, { a: 'buck.OUT-', b: 'rpi.GND' },
   { a: 'cam.CSI', b: 'rpi.CSI', sig: 'CAM' },
+  { a: 'rpi.TX', b: 'esp32.RX2', sig: 'UART' }, { a: 'esp32.TX2', b: 'rpi.RX', sig: 'UART' }, { a: 'rpi.GND', b: 'esp32.GND' },
+  { a: 'gnss.USB', b: 'rpi.USB', sig: 'GNSS' },
+  { a: 'esp32.3V3', b: 'lora.VCC', unless: 'buck' }, { a: 'buck.OUT+', b: 'lora.VCC' }, { a: 'esp32.GND', b: 'lora.GND' },
+  { a: 'lora.TXD', b: 'esp32.D18', sig: 'LORA' }, { a: 'esp32.D19', b: 'lora.RXD', sig: 'LORA' },
   { a: 'esp32.3V3', b: 'imu.VCC' }, { a: 'esp32.GND', b: 'imu.GND' },
   { a: 'esp32.D21', b: 'imu.SDA', sig: 'I2C' }, { a: 'esp32.D22', b: 'imu.SCL', sig: 'I2C' },
-  { a: 'l298n.5V', b: 'sonar.VCC' }, { a: 'esp32.GND', b: 'sonar.GND' },
-  { a: 'esp32.D5', b: 'sonar.TRIG', sig: 'TRIG' },
-  { a: 'sonar.ECHO', b: 'esp32.D18', unless: 'divider', sig: 'ECHO' },
-  { a: 'sonar.ECHO', b: 'divider.IN', sig: 'ECHO' }, { a: 'divider.OUT', b: 'esp32.D18', sig: 'ECHO' }, { a: 'divider.GND', b: 'esp32.GND' },
+  { a: 'l298n.5V', b: 'sonar.VCC', unless: 'buck' }, { a: 'buck.OUT+', b: 'sonar.VCC' }, { a: 'esp32.GND', b: 'sonar.GND' },
+  { a: 'esp32.D23', b: 'sonar.TRIG', sig: 'TRIG' },
+  { a: 'sonar.ECHO', b: 'esp32.D13', unless: 'divider', sig: 'ECHO' },
+  { a: 'sonar.ECHO', b: 'divider.IN', sig: 'ECHO' }, { a: 'divider.OUT', b: 'esp32.D13', sig: 'ECHO' }, { a: 'divider.GND', b: 'esp32.GND' },
   { a: 'esp32.D2', b: 'leds.A', sig: 'LUCES' }, { a: 'leds.K', b: 'esp32.GND' },
   { a: 'esp32.D4', b: 'buzzer.+', sig: 'BOCINA' }, { a: 'buzzer.-', b: 'esp32.GND' },
   { a: 'enc.A1', b: 'esp32.D34', sig: 'ENC' }, { a: 'enc.B1', b: 'esp32.D35', sig: 'ENC' },
@@ -205,11 +240,14 @@ UGV.WIRES = [
 UGV.PIN_FUNC = {
   'esp32.D14': 'PWM del motor A (ENA)', 'esp32.D27': 'Sentido motor A (IN1)', 'esp32.D26': 'Sentido motor A (IN2)',
   'esp32.D25': 'Sentido motor B (IN3)', 'esp32.D33': 'Sentido motor B (IN4)', 'esp32.D32': 'PWM del motor B (ENB)',
-  'esp32.D21': 'I2C SDA (IMU)', 'esp32.D22': 'I2C SCL (IMU)', 'esp32.D5': 'TRIG del ultrasónico', 'esp32.D18': 'ECHO del ultrasónico',
+  'esp32.D21': 'I2C SDA (IMU)', 'esp32.D22': 'I2C SCL (IMU)', 'esp32.D23': 'TRIG del ultrasónico', 'esp32.D13': 'ECHO del ultrasónico (con divisor)',
+  'esp32.D5': 'Contacto auxiliar del paro de emergencia', 'esp32.D18': 'UART1 RX ← radio LoRa', 'esp32.D19': 'UART1 TX → radio LoRa',
+  'esp32.RX2': 'UART2 RX (GPIO 16) ← Raspberry Pi', 'esp32.TX2': 'UART2 TX (GPIO 17) → Raspberry Pi',
+  'rpi.TX': 'GPIO 14 · TXD → ESP32', 'rpi.RX': 'GPIO 15 · RXD ← ESP32', 'rpi.USB': 'Receptor GNSS por adaptador USB-serie',
   'esp32.D2': 'Luces (también LED azul de la placa)', 'esp32.D4': 'Bocina', 'esp32.D34': 'Encoder A motor izq. (solo entrada)',
   'esp32.D35': 'Encoder B motor izq. (solo entrada)', 'esp32.VP': 'GPIO 36 · encoder A motor der.', 'esp32.VN': 'GPIO 39 · encoder B motor der.',
   'esp32.VIN': 'Entrada de 5 V', 'esp32.3V3': 'Salida de 3,3 V del regulador de la placa', 'l298n.5V': 'Salida del regulador 78M05 (con jumper)',
-  'l298n.12V': 'Entrada de potencia (aquí 7,4 V)', 'battery.BAT+': '7,4 V nominal (2 × 3,7 V)'
+  'l298n.12V': 'Entrada de potencia (7,4 V con 2 celdas · 11,1 V con 3)', 'battery.BAT+': '7,4 V nominal (2 × 3,7 V) · 11,1 V con 3 celdas'
 };
 
 UGV.part = id => UGV.PARTS.find(p => p.id === id);

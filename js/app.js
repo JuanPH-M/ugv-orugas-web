@@ -41,14 +41,20 @@ UGV.Circuit.init({ wrap: $('schWrap'), palette: $('palette'), inspector: $('insp
 UGV.Catalog.init({ grid: $('pgrid'), filters: $('filters'), modal: $('modal') });
 
 // vistas y capas
-document.querySelectorAll('[data-view]').forEach(b => b.addEventListener('click', () => Sim.setView(b.dataset.view)));
+document.querySelectorAll('[data-view]').forEach(b => b.addEventListener('click', () => { if (b.dataset.view === 'field') { Sim.overview(); UGV.emit('view', 'field'); } else Sim.setView(b.dataset.view); }));
 UGV.on('view', v => document.querySelectorAll('[data-view]').forEach(b => b.setAttribute('aria-pressed', b.dataset.view === v)));
 const toggle = (id, fn) => { const b = $(id); b.addEventListener('click', () => { const on = b.getAttribute('aria-pressed') !== 'true'; b.setAttribute('aria-pressed', on); fn(on); }); };
 toggle('tWires', on => Sim.setWires(on)); toggle('tOpen', on => Sim.setOpen(on));
 
 // modo
 document.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => {
-  if (b.dataset.mode === 'auto' && !UGV.isOn('aruco')) { UGV.setOn('aruco', true); UGV.emit('toast', 'Marcadores ArUco agregados al piso. El robot va al más cercano y recorre el cuadrado.'); }
+  if (b.dataset.mode === 'auto') { // la misión necesita la Raspberry Pi encendida y, en campo abierto, el GNSS
+    const add = [];
+    if (!UGV.isOn('rpi')) { S.on.rpi = true; add.push('Raspberry Pi'); }
+    if (!UGV.isOn('buck')) { S.on.buck = true; add.push('convertidor DC-DC de 5 V'); }
+    if (!UGV.isOn('gnss')) { S.on.gnss = true; add.push('receptor GNSS'); }
+    if (add.length) { UGV.save(); UGV.emit('parts'); UGV.emit('wires'); UGV.emit('toast', 'Se agregaron ' + add.join(', ') + ': la Raspberry Pi ejecuta la misión y se localiza con el GNSS.'); }
+  }
   Sim.setMode(b.dataset.mode);
 }));
 UGV.on('mode', m => { document.querySelectorAll('[data-mode]').forEach(b => b.setAttribute('aria-pressed', b.dataset.mode === m)); $('hErrRow').hidden = m !== 'auto'; });
@@ -68,7 +74,21 @@ $('slip').addEventListener('input', e => { Sim.st.slip = e.target.value / 100; $
 $('comp').addEventListener('change', e => { Sim.st.comp = e.target.checked; Sim.st.errAcc = Sim.st.errN = 0; });
 $('tscale').addEventListener('change', e => { Sim.st.timeScale = +e.target.value; });
 $('bReset').addEventListener('click', () => Sim.cmd('reset'));
-$('bRecharge').addEventListener('click', () => { Sim.st.soc = 1; UGV.emit('toast', 'Batería cargada: 8,4 V (4,2 V por celda).'); });
+$('bRecharge').addEventListener('click', () => { Sim.st.soc = 1; Sim.st.ms.done = false; UGV.emit('toast', `Batería cargada: ${fmt(4.2 * Sim.cells())} V (4,2 V por celda).`); });
+$('cells').value = String(Sim.cells());
+$('cells').addEventListener('change', e => { S.cells = +e.target.value; UGV.save(); UGV.emit('parts'); UGV.emit('wires'); UGV.emit('toast', S.cells === 3 ? 'Tres celdas (11,1 V): los motores reciben ≈ 9,3 V después del L298N y el robot va casi al doble de rápido.' : 'Dos celdas (7,4 V): los motores reciben ≈ 5,6 V después del L298N.'); });
+$('simspeed').addEventListener('change', e => { Sim.st.simSpeed = +e.target.value; });
+$('gnssMode').value = S.gnssMode || 'auto';
+$('gnssMode').addEventListener('change', e => { S.gnssMode = e.target.value; UGV.save(); UGV.emit('toast', S.gnssMode === 'rtk' ? 'RTK: error de ≈ 2 cm en campo abierto (≈ 45 cm bajo los árboles). Permite circular entre surcos.' : 'GNSS autónomo: error de ≈ 2 m, suficiente para el camino de servicio, no para las calles entre surcos.'); });
+$('bLink').addEventListener('click', () => { const on = $('bLink').getAttribute('aria-pressed') !== 'true'; $('bLink').setAttribute('aria-pressed', on); $('bLink').textContent = on ? 'Restablecer enlace' : 'Cortar enlace LoRa'; Sim.setLinkCut(on);
+  if (on) UGV.emit('toast', UGV.isOn('lora') ? 'Enlace LoRa cortado: si el robot se mueve, en 1 s entra en PARADA DE EMERGENCIA.' : 'Sin radio LoRa el robot depende del WiFi de respaldo; se simula igual la pérdida del latido del operador.'); });
+$('bOverview').addEventListener('click', () => { Sim.overview(); UGV.emit('view', 'field'); });
+$('bEstop').addEventListener('click', () => {
+  if (!UGV.isOn('estop')) { UGV.setOn('estop', true); UGV.emit('toast', 'Se montó el paro de emergencia en la línea de potencia del L298N.'); }
+  const on = !S.estopPressed; Sim.setEstop(on); $('bEstop').setAttribute('aria-pressed', on); $('bEstop').textContent = on ? 'Soltar paro de emergencia' : 'Paro de emergencia';
+  if (!on) UGV.emit('toast', 'Paro liberado. Pulsa “Rearmar” para volver a operar.'); });
+$('bEstop').setAttribute('aria-pressed', !!S.estopPressed); if (S.estopPressed) $('bEstop').textContent = 'Soltar paro de emergencia';
+$('bRearm').addEventListener('click', () => Sim.cmd('rearm'));
 
 // botones de la app
 $('bLuces').addEventListener('click', () => { const on = $('bLuces').getAttribute('aria-pressed') !== 'true'; $('bLuces').setAttribute('aria-pressed', on); Sim.cmd('lights', on);
@@ -108,7 +128,16 @@ UGV.on('telemetry', t => {
   $('hV').textContent = fmt(t.v); $('hW').textContent = Math.round(t.w * 57.2958);
   $('hBat').textContent = `${fmt(t.vbat, 2)} V · ${Math.round(t.soc * 100)} %`;
   const bb = $('hBatBar'); bb.style.width = (t.soc * 100) + '%'; bb.dataset.lvl = t.soc < .15 ? 'low' : t.soc < .35 ? 'mid' : 'ok';
-  $('hD').textContent = t.sonar ? (t.dist === null ? '> 400 cm' : Math.round(t.dist) + ' cm') : (UGV.isOn('sonar') ? 'sin conexión' : 'sin sensor');
+  $('hD').textContent = t.sonar ? (t.dist === null ? '> 450 cm' : Math.round(t.dist) + ' cm') : (UGV.isOn('sonar') ? 'sin conexión' : 'sin sensor');
+  const sb = $('hState'); sb.textContent = t.state; sb.dataset.s = t.state.split(' ')[0];
+  $('hGnss').textContent = t.gnss ? `${t.gnss.rtk ? 'RTK' : 'autónomo'} ±${t.gnss.sigma >= 100 ? fmt(t.gnss.sigma / 100) + ' m' : Math.round(t.gnss.sigma) + ' cm'}${t.gnss.canopy ? ' · bajo árbol' : ''}` : (UGV.isOn('gnss') ? (t.rpiOK ? 'sin conexión USB' : 'Raspberry Pi apagada') : 'sin receptor');
+  $('hSoil').textContent = `${t.soil}${Math.abs(t.grade) > .02 ? ' · ' + Math.round(t.grade * 57.2958) + '°' : ''}`;
+  $('hTrips').textContent = `${t.ms.trips} ${t.ms.trips === 1 ? 'viaje' : 'viajes'} · ${fmt(t.ms.kg)} kg`;
+  $('haltBanner').hidden = !t.halt; if (t.halt) $('haltWhy').textContent = t.halt;
+  const chip = (ok, txt) => `<span class="lk ${ok ? 'on' : ''}">${txt}</span>`;
+  $('links').innerHTML = chip(t.rpiOK, 'UART Pi ⇄ ESP32') + chip(t.gnssOK, 'GNSS') + chip(t.loraOK && !t.linkCut, t.linkCut ? 'LoRa cortado' : 'LoRa');
+  const cf = $('bConfirm'); cf.disabled = !t.ms.wait; cf.textContent = t.ms.wait === 'acopio' ? 'Confirmar descarga' : 'Confirmar carga';
+  renderMission(t.ms);
   $('hErr').textContent = `${fmt(t.err || 0)} cm · RMS ${fmt(t.rms || 0)} cm`;
   setBar($('pwmA'), t.dutyL); setBar($('pwmB'), t.dutyR);
   $('pwmAv').textContent = Math.round(t.dutyL * 255); $('pwmBv').textContent = Math.round(t.dutyR * 255);
@@ -119,9 +148,9 @@ UGV.on('telemetry', t => {
   $('tAut').textContent = isFinite(mins) ? (mins > 600 ? '> 10 h' : Math.round(mins) + ' min') : '—';
   $('hMass').textContent = `${fmt(t.mass, 2)} kg`;
   drawChart();
-  $('physNote').textContent = `Velocidad tope con la batería actual: ${Math.round(UGV.Sim.vTop())} cm/s (motor a ${fmt(t.vbat * 1, 1)} V menos 1,8 V del L298N).`;
-  $('routeSec').textContent = (t.mode === 'auto' ? 'modo automático' : fmt(t.recT) + ' s guardados') + (t.replay ? ' · regresando' : '');
-  $('lgEst').hidden = !t.est; $('lgRef').hidden = !(UGV.isOn('aruco') || t.mode === 'auto');
+  $('physNote').textContent = `Velocidad tope en el camino con la batería actual: ${Math.round(UGV.Sim.vTop())} cm/s (${fmt(t.vbat * 1, 1)} V menos 1,8 V del L298N, ${t.cells} celdas).`;
+  $('routeSec').textContent = (t.mode === 'auto' ? 'misión por puntos' : fmt(t.recT) + ' s guardados') + (t.replay ? ' · regresando' : '');
+  $('lgEst').hidden = !t.est; $('lgRef').hidden = false;
   drawRoute(t);
 });
 
@@ -131,29 +160,51 @@ function drawRoute(t) {
   const r = rc.getBoundingClientRect(), dpr = Math.min(devicePixelRatio, 2);
   if (rc.width !== Math.round(r.width * dpr) || rc.height !== Math.round(r.height * dpr)) { rc.width = Math.round(r.width * dpr); rc.height = Math.round(r.height * dpr); }
   const W = rc.width, H = rc.height; rg.clearRect(0, 0, W, H);
-  const st = Sim.st, o = st.origin, showRef = UGV.isOn('aruco') || t.mode === 'auto';
-  const pts = st.path.concat([[st.x, st.z]]);
-  let ext = showRef ? 85 : 60; pts.concat(st.estPath).forEach(([x, z]) => { ext = Math.max(ext, Math.abs(x - o.x) * 1.12, Math.abs(z - o.z) * 1.12); });
-  if (showRef) ext = Math.max(ext, Math.abs(o.x) + 75, Math.abs(o.z) + 75);
-  const s = Math.min(W, H) / 2 / ext, cx = W / 2, cy = H / 2, P = (x, z) => [cx + (x - o.x) * s, cy + (z - o.z) * s];
-  rg.strokeStyle = css('--line'); rg.lineWidth = dpr; rg.beginPath(); rg.moveTo(cx, 0); rg.lineTo(cx, H); rg.moveTo(0, cy); rg.lineTo(W, cy); rg.stroke();
-  if (showRef) { rg.setLineDash([4 * dpr, 4 * dpr]); rg.strokeStyle = css('--muted'); rg.beginPath(); [[60, -60], [60, 60], [-60, 60], [-60, -60], [60, -60]].forEach(([x, z], i) => { const [a, b] = P(x, z); i ? rg.lineTo(a, b) : rg.moveTo(a, b); }); rg.stroke(); rg.setLineDash([]);
-    Sim.markers.forEach(m => { const [a, b] = P(m.x, m.z); rg.fillStyle = css('--fg'); rg.fillRect(a - 3.5 * dpr, b - 3.5 * dpr, 7 * dpr, 7 * dpr); }); }
-  if (st.estPath.length > 1) { rg.setLineDash([5 * dpr, 4 * dpr]); rg.strokeStyle = css('--w-5v'); rg.lineWidth = 2 * dpr; rg.beginPath(); st.estPath.forEach(([x, z], i) => { const [a, b] = P(x, z); i ? rg.lineTo(a, b) : rg.moveTo(a, b); }); rg.stroke(); rg.setLineDash([]); }
-  rg.strokeStyle = css('--mint'); rg.lineWidth = 2.4 * dpr; rg.lineJoin = 'round'; rg.beginPath(); pts.forEach(([x, z], i) => { const [a, b] = P(x, z); i ? rg.lineTo(a, b) : rg.moveTo(a, b); }); rg.stroke();
-  rg.fillStyle = css('--muted'); rg.font = `${11 * dpr}px "IBM Plex Sans", sans-serif`; rg.textAlign = 'center';
-  rg.beginPath(); rg.arc(cx, cy, 4 * dpr, 0, 7); rg.fill(); rg.fillText('Inicio', cx, cy + 16 * dpr);
+  const st = Sim.st, ms = Sim.mission(), pts = st.path.concat([[st.x, st.z]]);
+  // encuadre: la misión, el recorrido y el robot
+  let x0 = st.x, x1 = st.x, z0 = st.z, z1 = st.z;
+  ms.map(p => [p.x, p.z]).concat(pts.slice(-800)).forEach(([x, z]) => { x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); });
+  const pad = 180, cxw = (x0 + x1) / 2, czw = (z0 + z1) / 2, s = Math.min(W / (x1 - x0 + 2 * pad), H / (z1 - z0 + 2 * pad));
+  const P = (x, z) => [W / 2 + (x - cxw) * s, H / 2 + (z - czw) * s];
+  const rect = (q, fill) => { const [a, b] = P(q.x0, q.z0), [c, d] = P(q.x1, q.z1); rg.fillStyle = fill; rg.fillRect(a, b, c - a, d - b); };
+  Sim.ROADS.forEach(q => rect(q, 'rgba(181,157,118,.45)'));
+  Sim.LOTS.forEach(l => l.rows.forEach(rw => rect({ x0: l.x0, x1: l.x1, z0: rw - 42, z1: rw + 42 }, 'rgba(47,107,42,.55)')));
+  Sim.MUD.forEach(m => { const [a, b] = P(m.x, m.z); rg.fillStyle = 'rgba(80,56,34,.5)'; rg.beginPath(); rg.arc(a, b, m.r * s, 0, 7); rg.fill(); });
+  Sim.TREES.forEach(m => { const [a, b] = P(m.x, m.z); rg.strokeStyle = 'rgba(47,107,42,.6)'; rg.lineWidth = dpr; rg.setLineDash([3 * dpr, 3 * dpr]); rg.beginPath(); rg.arc(a, b, m.r * s, 0, 7); rg.stroke(); rg.setLineDash([]); });
+  rect(Sim.SHED, 'rgba(120,120,120,.35)');
+  rg.setLineDash([5 * dpr, 4 * dpr]); rg.strokeStyle = css('--w-bus'); rg.lineWidth = 1.6 * dpr; rg.beginPath(); ms.forEach((p, i) => { const [a, b] = P(p.x, p.z); i ? rg.lineTo(a, b) : rg.moveTo(a, b); }); rg.stroke(); rg.setLineDash([]);
+  if (st.estPath.length > 1) { rg.setLineDash([5 * dpr, 4 * dpr]); rg.strokeStyle = css('--w-5v'); rg.lineWidth = 2 * dpr; rg.beginPath(); st.estPath.slice(-1500).forEach(([x, z], i) => { const [a, b] = P(x, z); i ? rg.lineTo(a, b) : rg.moveTo(a, b); }); rg.stroke(); rg.setLineDash([]); }
+  rg.strokeStyle = css('--mint'); rg.lineWidth = 2.4 * dpr; rg.lineJoin = 'round'; rg.beginPath(); pts.slice(-1500).forEach(([x, z], i) => { const [a, b] = P(x, z); i ? rg.lineTo(a, b) : rg.moveTo(a, b); }); rg.stroke();
+  if (st.gnss) { const [a, b] = P(st.gnss.x, st.gnss.z); rg.fillStyle = '#7b4fc9'; rg.beginPath(); rg.arc(a, b, 3 * dpr, 0, 7); rg.fill(); }
+  rg.font = `600 ${10.5 * dpr}px "IBM Plex Sans", sans-serif`; rg.textAlign = 'center';
+  const col = { carga: css('--w-5v'), acopio: css('--stop'), paso: css('--w-bus') };
+  ms.forEach((p, i) => { const [a, b] = P(p.x, p.z); rg.fillStyle = col[p.tipo]; rg.beginPath(); rg.arc(a, b, (i === st.ms.i ? 6 : 4.5) * dpr, 0, 7); rg.fill(); rg.fillStyle = css('--fg'); rg.fillText(p.id === 'ACOPIO' ? 'Acopio' : p.id, a, b - 9 * dpr); });
   const [rx, ry] = P(st.x, st.z); rg.save(); rg.translate(rx, ry); rg.rotate(-st.yaw);
   rg.fillStyle = css('--mint'); rg.beginPath(); rg.moveTo(11 * dpr, 0); rg.lineTo(-6 * dpr, 6 * dpr); rg.lineTo(-3 * dpr, 0); rg.lineTo(-6 * dpr, -6 * dpr); rg.closePath(); rg.fill(); rg.restore();
 }
 
 
+/* ---------- Misión por puntos ---------- */
+const TIPO = { carga: 'punto de carga', paso: 'paso', acopio: 'acopio · descarga' };
+let msSig = '';
+function renderMission(m) {
+  const list = Sim.mission(), sig = list.map(p => p.id).join() + m.i + m.dir + m.wait + m.done;
+  if (sig === msSig) return; msSig = sig;
+  $('missionList').innerHTML = list.map((p, i) => { const cur = i === m.i && !m.done, wait = m.wait && ((m.dir > 0 && i === m.i - 1) || (m.dir < 0 && i === m.i + 1) || (m.dir < 0 && m.i === -1 && i === 0));
+    return `<li class="${cur ? 'cur' : ''} ${wait ? 'wait' : ''} t-${p.tipo}"><b>${p.id === 'ACOPIO' ? 'Acopio' : p.id}</b><span>${TIPO[p.tipo]}</span><small class="mono">${(p.x / 100).toFixed(1).replace('.', ',')} ; ${(-p.z / 100).toFixed(1).replace('.', ',')} m</small>${cur ? `<em>${m.dir > 0 ? 'hacia acá' : 'regreso'}</em>` : ''}${wait ? '<em>esperando</em>' : ''}</li>`; }).join('');
+}
+UGV.on('mission', () => { msSig = ''; renderMission(Sim.st.ms); });
+renderMission(Sim.st.ms);
+$('bConfirm').addEventListener('click', () => Sim.confirm());
+$('autoConfirm').addEventListener('change', e => { Sim.st.ms.autoConfirm = e.target.checked; });
+Sim.st.ms.autoConfirm = $('autoConfirm').checked;
+
 /* ---------- Carga, escenario, ruta dibujada y foto ---------- */
 $('load').addEventListener('input', e => { const kg = +e.target.value; Sim.setLoad(kg); $('loadLbl').textContent = fmt(kg) + ' kg'; });
 $('bDraw').addEventListener('click', () => { const on = $('bDraw').getAttribute('aria-pressed') !== 'true'; $('bDraw').setAttribute('aria-pressed', on); Sim.setDraw(on); });
 UGV.on('draw', v => $('bDraw').setAttribute('aria-pressed', v));
-UGV.on('custom', n => { $('wpCount').textContent = n + (n === 1 ? ' punto' : ' puntos'); });
-$('bClearWp').addEventListener('click', () => { Sim.clearCustom(); $('wpCount').textContent = '0 puntos'; });
+UGV.on('custom', n => { $('wpCount').textContent = n ? n + (n === 1 ? ' punto dibujado' : ' puntos dibujados') : 'misión de la finca'; });
+$('bClearWp').addEventListener('click', () => { Sim.clearCustom(); $('bDraw').setAttribute('aria-pressed', false); Sim.setDraw(false); UGV.emit('toast', 'Misión de la finca: A (carga) → B → C → D → acopio.'); });
 $('bAddObs').addEventListener('click', () => Sim.addObstacle());
 $('bClrObs').addEventListener('click', () => Sim.clearObstacles());
 $('bDefObs').addEventListener('click', () => Sim.resetObstacles());
@@ -177,7 +228,7 @@ function drawChart() {
   if (cv.width !== Math.round(r.width * dpr) || cv.height !== Math.round(r.height * dpr)) { cv.width = Math.round(r.width * dpr); cv.height = Math.round(r.height * dpr); }
   const W = cv.width, H = cv.height, padL = 40 * dpr, padB = 18 * dpr, padT = 8 * dpr, padR = 8 * dpr; g.clearRect(0, 0, W, H);
   const rows = Sim.hist, c = CH[chartVar]; const vals = rows.map(c.f).filter(v => v !== null && isFinite(v));
-  let lo = Math.min(0, ...vals), hi = Math.max(1, ...vals); if (chartVar === 'vbat') { lo = Math.min(6, ...vals); hi = Math.max(8.4, ...vals); }
+  let lo = Math.min(0, ...vals), hi = Math.max(1, ...vals); if (chartVar === 'vbat') { lo = Math.min(3 * Sim.cells(), ...vals); hi = Math.max(4.2 * Sim.cells(), ...vals); }
   const stp = niceStep(hi - lo || 1); lo = Math.floor(lo / stp) * stp; hi = Math.ceil(hi / stp) * stp; if (hi === lo) hi = lo + stp;
   const X = i => padL + (W - padL - padR) * i / 599, Y = v => H - padB - (H - padB - padT) * (v - lo) / (hi - lo);
   g.font = `${10 * dpr}px "IBM Plex Mono", monospace`; g.textAlign = 'right'; g.textBaseline = 'middle';
@@ -199,7 +250,7 @@ $('bRunTests').addEventListener('click', async () => {
   b.disabled = false;
   if (testRes.length) {
     $('testsBody').innerHTML = testRes.map(r => `<tr><td>${r.prueba}</td><td class="mono"><b>${r.resultado}</b></td><td class="muted">${r.detalle}</td></tr>`).join('');
-    $('testsStatus').textContent = `Listo: ${testRes.length} pruebas con ${fmt(Sim.robotMass(), 2)} kg de robot, χ = ${fmt(Sim.st.slip)} y batería al 90 %.`;
+    $('testsStatus').textContent = `Listo: ${testRes.length} pruebas en la finca virtual con ${fmt(Sim.robotMass(), 2)} kg de robot, χ = ${fmt(Sim.st.slip)}, ${Sim.cells()} celdas y batería al 90 %.`;
     $('bTestsCsv').disabled = $('bTestsCopy').disabled = false;
   }
 });
@@ -220,9 +271,23 @@ $('bCode').addEventListener('click', () => {
   $('cDl').onclick = () => download('ugv_orugas.ino', code, 'text/plain;charset=utf-8');
 });
 
+$('bCodePi').addEventListener('click', () => {
+  const code = UGV.genPiCode(); const m = $('modal');
+  m.querySelector('.m-body').innerHTML = `<div class="code-wrap"><h2 id="mTitle">Programa de la Raspberry Pi (Python 3)</h2>
+    <p class="muted">Unidad central del vehículo: lee el GNSS, fusiona la posición, ejecuta la misión por puntos con Pure Pursuit y manda las velocidades de las orugas a la ESP32 por el puerto serie, con el mismo formato de tramas del firmware. Instala <code>pip install pyserial</code> y ejecútalo con <code>python3 ugv_rpi.py mision.json</code>.</p>
+    <div class="row"><button class="btn small" id="cCopy">Copiar código</button><button class="btn small" id="cDl">Descargar .py</button><button class="btn small" id="cMis">Descargar misión (JSON)</button></div>
+    <pre class="code"><code>${code.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</code></pre></div>`;
+  m.hidden = false; document.body.classList.add('modal-open');
+  $('cCopy').onclick = () => navigator.clipboard.writeText(code).then(() => UGV.emit('toast', 'Código copiado.')).catch(() => UGV.emit('toast', 'No se pudo copiar; usa “Descargar .py”.'));
+  $('cDl').onclick = () => download('ugv_rpi.py', code, 'text/x-python;charset=utf-8');
+  $('cMis').onclick = () => download('mision.json', UGV.missionJSON(), 'application/json;charset=utf-8');
+});
+
 /* ---------- Presupuesto ---------- */
-const prices = (() => { try { return JSON.parse(localStorage.getItem('ugv-precios') || '{}'); } catch (_) { return {}; } })();
-const QTY = { aruco: 4 };
+/* Precios verificados en Electronilab (oct. 2026, IVA incluido) que usa el informe; los demás quedan por cotizar */
+const REF_PRICES = { chassis: 52300, esp32: 38500, rpi: 279900, buck: 9900, sonar: 36900, gnss: 67300, lora: 37500 };
+const prices = (() => { let p = {}; try { p = JSON.parse(localStorage.getItem('ugv-precios') || '{}'); } catch (_) { } return Object.assign({}, REF_PRICES, p); })();
+const QTY = { aruco: 1, lora: 2 };
 const money = v => '$ ' + Math.round(v).toLocaleString('es-CO');
 const bomParts = () => UGV.PARTS.filter(p => p.id !== 'box');
 function renderBom() {
@@ -237,7 +302,7 @@ $('bBomCsv').addEventListener('click', () => download('presupuesto-ugv.csv', 'pi
 UGV.on('parts', renderBom); renderBom();
 
 /* Tiles de la pestaña Proyecto */
-const tiles = [['180 × 165 × 60', 'mm · chasis'], ['7,4 V', '2 × 18650 de 3,7 V'], ['≈ 0,8 kg', 'masa con electrónica'], ['≈ 40 cm/s', 'velocidad tope estimada'], ['2 A', 'por canal del L298N'], ['192.168.4.1', 'app de control WiFi']];
+const tiles = [['36 × 36 m', 'parcela de la finca virtual'], ['A → B → C → acopio', 'misión por puntos'], ['≈ 2 m · 2 cm', 'GNSS autónomo · RTK'], ['15°', 'pendiente de diseño'], ['≈ $ 781.500', 'componentes verificados'], ['≈ 1 %', 'del precio de un robot comercial']];
 $('tiles').innerHTML = tiles.map(([v, l]) => `<div class="tile"><b>${v}</b><span>${l}</span></div>`).join('');
 
 UGV.goTab(fromHash());

@@ -382,6 +382,8 @@ B.rpi = () => {
   bx(.4, .55, 2.2, M.white, g, 1.55, yt + .28, .9); bx(.12, .2, 2.0, M.black, g, 1.55, yt + .58, .9); // CSI
   bx(2.2, .55, .4, M.white, g, -3.8, yt + .28, .2); // DSI
   pins['5V'] = V(-.4 + (n - 1) * .127, yt + .9, -2.6); pins.GND = V(-.4 + (n - 3) * .127, yt + .9, -2.6); pins.CSI = V(1.55, yt + .7, .9);
+  const xMax = -.4 + (n - 1) * .127;
+  pins.TX = V(xMax - 3 * .254, yt + .9, -2.32); pins.RX = V(xMax - 4 * .254, yt + .9, -2.32); pins.USB = V(4.4, yt + .8, -1.65);
   return { g, pins };
 };
 
@@ -443,11 +445,13 @@ B.imu = () => {
 
 B.sonar = () => {
   const g = new T.Group(), pins = {};
-  const top = tex(512, 256, (c) => { c.fillStyle = '#1d4fa8'; c.fillRect(0, 0, 512, 256); silk(c, 'HC-SR04', 256, 40, 30); silk(c, 'T', 110, 228, 26); silk(c, 'R', 400, 228, 26); silk(c, 'Vcc Trig Echo Gnd', 256, 200, 20); });
+  const top = tex(512, 256, (c) => { c.fillStyle = '#1d4fa8'; c.fillRect(0, 0, 512, 256); silk(c, 'JSN-SR04T', 256, 40, 30); silk(c, 'WATERPROOF', 256, 120, 22); silk(c, '5V Trig Echo GND', 256, 200, 20); });
   const board = new T.Group(); board.rotation.z = Math.PI / 2; board.position.set(0, 1.05, 0); g.add(board);
   pcb(2.1, 4.5, .14, 0x1a4699, top, board, -.07);
   const mesh_ = tex(128, 128, (c) => { c.fillStyle = '#9ea3a8'; c.fillRect(0, 0, 128, 128); c.fillStyle = '#2a2d30'; for (let x = 4; x < 128; x += 9) for (let y = 4; y < 128; y += 9) { c.beginPath(); c.arc(x, y, 2.6, 0, 7); c.fill(); } });
-  [-1.3, 1.3].forEach(z => { cy(.8, 1.2, M.steel, g, .67, 1.05, z, 'x', 32); cy(.72, .02, std(0xffffff, { map: mesh_, metalness: .6, roughness: .5 }), g, 1.28, 1.05, z, 'x', 32); });
+  // sonda sellada de un solo transductor (frente resistente al agua)
+  cy(1.1, 1.3, M.blackGloss, g, .75, 1.05, 0, 'x', 36); cy(.98, .03, std(0x2b2e31, { roughness: .35 }), g, 1.41, 1.05, 0, 'x', 36);
+  void mesh_;
   cy(.18, .5, M.steel, g, .25, 1.0, 0, 'x', 12).scale.set(1, 1, 2);
   for (let i = 0; i < 4; i++) bx(.5, .07, .07, M.gold, g, -.3, .2, -.38 + i * .254);
   bx(.9, .18, 3.4, M.alu, g, -.45, .09, 0); // soporte en L
@@ -498,6 +502,48 @@ B.enc = () => {
   return { g, pins };
 };
 
+B.gnss = () => { // NEO-M8N con antena cerámica sobre un mástil
+  const g = new T.Group(), pins = {};
+  cy(.18, 4.2, M.alu, g, 0, 2.1, 0, 'y', 12);
+  const top = tex(256, 256, (c) => { c.fillStyle = '#1d4fa8'; c.fillRect(0, 0, 256, 256); silk(c, 'NEO-M8N', 128, 200, 26); silk(c, 'GPS', 128, 232, 20); });
+  const brd = new T.Group(); brd.position.set(0, 4.2, 0); g.add(brd);
+  pcb(3.0, 3.0, .14, 0x1a4699, top, brd, 0);
+  const patch = tex(128, 128, (c) => { c.fillStyle = '#c9b48a'; c.fillRect(0, 0, 128, 128); c.fillStyle = '#d9d4c7'; c.fillRect(24, 24, 80, 80); c.fillStyle = '#b8b2a3'; c.beginPath(); c.arc(78, 78, 7, 0, 7); c.fill(); });
+  const pm = std(0xffffff, { map: patch, roughness: .55 }), ps = std(0xc9b48a, { roughness: .6 });
+  mesh(new T.BoxGeometry(2.5, .4, 2.5), [ps, ps, pm, ps, ps, ps], brd, 0, .34, 0);
+  bx(.9, .25, .7, M.steel, brd, 1.0, -.1, 1.1);
+  const cable = new T.CatmullRomCurve3([V(0, 4.0, .3), V(.2, 2.0, .35), V(.3, .3, .3)]); mesh(new T.TubeGeometry(cable, 20, .06, 8), M.wireBlack, g);
+  pins.USB = V(.3, .2, .3);
+  return { g, pins };
+};
+
+B.lora = () => { // E220-900T22D con antena SMA
+  const g = new T.Group(), pins = {};
+  const top = tex(512, 256, (c) => { c.fillStyle = '#0f3b6e'; c.fillRect(0, 0, 512, 256); silk(c, 'E220-900T22D', 230, 70, 30); silk(c, 'LoRa 915MHz', 230, 130, 24); silk(c, 'M0 M1 RXD TXD AUX VCC GND', 256, 220, 18); });
+  pcb(3.6, 2.1, .14, 0x0d3360, top, g, 0);
+  const sh = std(0xc7cbd0, { roughness: .3, metalness: .85 }); bx(1.6, .25, 1.4, sh, g, -.4, .27, 0);
+  cy(.22, .7, M.brass, g, 1.6, .5, 0, 'x', 14);
+  const ant = new T.Group(); ant.position.set(1.95, .5, 0); g.add(ant);
+  cy(.2, 5.2, M.blackGloss, ant, 0, 2.6, 0, 'y', 14); cy(.24, .5, M.black, ant, 0, .25, 0, 'y', 14);
+  headerRow(g, 7, -1.5, -.9, .14, .254, 'x', .6);
+  pins.VCC = V(-.0, .55, -.9); pins.GND = V(.25, .55, -.9); pins.TXD = V(-.75, .55, -.9); pins.RXD = V(-1.0, .55, -.9);
+  return { g, pins };
+};
+
+B.estop = () => { // pulsador tipo hongo sobre caja amarilla
+  const g = new T.Group(), pins = {};
+  const yellow = std(0xf2c230, { roughness: .45 });
+  rbox(2.4, 1.7, 2.4, .25, yellow, g, 0, 0, 0);
+  const lbl = tex(256, 64, (c) => { c.fillStyle = '#f2c230'; c.fillRect(0, 0, 256, 64); silk(c, 'EMERGENCIA', 128, 32, 26, '#111'); });
+  bx(2.0, .5, .02, std(0xffffff, { map: lbl, roughness: .5 }), g, 0, .85, 1.21);
+  cy(.55, .5, M.black, g, 0, 1.95, 0, 'y', 24);
+  const cap = mesh(new T.SphereGeometry(.95, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2), std(0xc8261d, { roughness: .35 }), g, 0, 2.2, 0); cap.scale.y = .55;
+  cy(.95, .22, std(0xb01f17, { roughness: .4 }), g, 0, 2.15, 0, 'y', 32);
+  g.userData.cap = cap;
+  pins.IN = V(-1.0, .3, -1.25); pins.OUT = V(1.0, .3, -1.25); pins.AUX = V(0, .3, -1.25);
+  return { g, pins };
+};
+
 B.chassis = () => { const c = UGV.buildChassis(); return { g: c.group, pins: {}, chassis: c }; };
 
 /* Posición de cada pieza en el robot (local: +x adelante, +z derecha, y arriba) */
@@ -518,7 +564,10 @@ UGV.PLACE = {
   divider: { pos: [5.3, G.PLATE_Y, -3.3] },
   leds: { pos: [6.95, G.PLATE_Y - 1.0, 0] },
   buzzer: { pos: [5.6, G.PLATE_Y, -2.0] },
-  enc: { pos: [0, 0, 0], fixed: true }
+  enc: { pos: [0, 0, 0], fixed: true },
+  gnss: { pos: [-.8, G.PLATE_Y + 6.6, -2.2] },
+  lora: { pos: [-3.4, G.PLATE_Y, -3.0] },
+  estop: { pos: [-3.6, G.PLATE_Y, 2.4] }
 };
 /* motorB queda girado 180° para que su caja reductora apunte a la oruga derecha */
 UGV.build = id => (B[id] ? B[id]() : null);

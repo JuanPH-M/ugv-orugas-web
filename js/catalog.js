@@ -24,6 +24,7 @@ function modelFor(id) {
   if (id === 'motorA' || id === 'motorB') { g.position.y = 0; r.g.position.y = 1.7; }
   if (id === 'enc') { r.g.position.set(0, -UGV.GEOM.YC + 1.6, 0); r.g.rotation.y = 0; }
   if (id === 'leds') r.g.position.y = .4;
+  if (id === 'lora') r.g.position.y = .2;
   return g;
 }
 function frame(cam, obj, dist = 1.9) {

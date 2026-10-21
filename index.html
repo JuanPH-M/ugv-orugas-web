@@ -3,19 +3,20 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>UGV de Orugas · Gemelo Digital</title>
-<meta name="description" content="Gemelo digital del prototipo de vehículo terrestre autónomo de orugas: simulador 3D, circuito interactivo y catálogo de piezas.">
+<title>UGV de Orugas · Gemelo Digital en la Finca</title>
+<meta name="description" content="Gemelo digital del prototipo de vehículo de orugas de bajo costo que transporta la cosecha en fincas y cultivos: simulador 3D en una parcela con surcos, barro y ladera, GNSS, misión por puntos, circuito con Raspberry Pi y catálogo de piezas.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&family=Saira+Condensed:wght@600;700;800&display=swap">
-<link rel="stylesheet" href="css/styles.css?v=13">
+<link rel="stylesheet" href="css/styles.css?v=18">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 40 24%22%3E%3Crect x=%222%22 y=%229%22 width=%2236%22 height=%2212%22 rx=%226%22 fill=%22none%22 stroke=%22%231f9a6c%22 stroke-width=%223%22/%3E%3Crect x=%2212%22 y=%222%22 width=%2216%22 height=%227%22 rx=%221.5%22 fill=%22%231f9a6c%22/%3E%3C/svg%3E">
 <script>try{var t=localStorage.getItem('ugv-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
 </head>
 <body>
 <header class="topbar">
   <a class="brand" href="#simulador" aria-label="Inicio">
     <svg viewBox="0 0 40 24" aria-hidden="true"><rect x="2" y="9" width="36" height="12" rx="6" fill="none" stroke="currentColor" stroke-width="2.4"/><circle cx="9" cy="15" r="3" fill="currentColor"/><circle cx="31" cy="15" r="3" fill="currentColor"/><rect x="12" y="2" width="16" height="7" rx="1.5" fill="currentColor"/></svg>
-    <span><b>UGV de orugas</b><small>Gemelo digital del prototipo</small></span>
+    <span><b>UGV de orugas</b><small>Transporte de cosecha en la finca</small></span>
   </a>
   <nav class="tabs" role="tablist" aria-label="Secciones">
     <a role="tab" href="#simulador" data-tab="sim">Simulador</a>
@@ -44,15 +45,20 @@
           <div class="batt-row"><span class="lbl">Batería</span><span class="mono" id="hBat">8,1 V · 86 %</span></div>
           <div class="batt-bar"><i id="hBatBar"></i></div>
         </div>
-        <div class="hud-row"><span class="lbl">Sensor frontal</span><span class="mono" id="hD">sin sensor</span></div>
-        <div class="hud-row"><span class="lbl">Masa total</span><span class="mono" id="hMass">–</span></div>
+        <div class="hud-row"><span class="lbl">Estado</span><span class="state-badge" id="hState">ESPERA</span></div>
+        <div class="hud-row"><span class="lbl">GNSS</span><span class="mono" id="hGnss">sin receptor</span></div>
+        <div class="hud-row hud-opt"><span class="lbl">Terreno</span><span class="mono" id="hSoil">–</span></div>
+        <div class="hud-row hud-opt"><span class="lbl">Sensor frontal</span><span class="mono" id="hD">sin sensor</span></div>
+        <div class="hud-row hud-opt"><span class="lbl">Masa total</span><span class="mono" id="hMass">–</span></div>
         <div class="hud-row" id="hErrRow" hidden><span class="lbl">Error de ruta</span><span class="mono" id="hErr">0 cm</span></div>
+        <div class="hud-row"><span class="lbl">Cosecha llevada</span><span class="mono" id="hTrips">0 viajes · 0 kg</span></div>
       </div>
       <div class="viewbar">
         <div class="seg" role="group" aria-label="Cámara">
           <button data-view="orbit" aria-pressed="true">Órbita</button>
           <button data-view="follow" aria-pressed="false">Seguir</button>
           <button data-view="top" aria-pressed="false">Cenital</button>
+          <button data-view="field" aria-pressed="false">Finca</button>
           <button data-view="robotcam" aria-pressed="false">Cámara</button>
         </div>
         <div class="seg" role="group" aria-label="Capas">
@@ -72,12 +78,13 @@
         </div>
       </div>
       <p class="stage-hint">Arrastra para girar · rueda para acercar · arrastra una pieza para moverla · W A S D para manejar · espacio para frenar</p>
+      <div class="halt-banner" id="haltBanner" hidden><b>PARADA DE EMERGENCIA</b><span id="haltWhy"></span><button class="btn small" id="bRearm">Rearmar</button></div>
     </div>
 
     <aside class="panel">
       <div class="seg wide" role="group" aria-label="Modo de manejo">
         <button data-mode="manual" aria-pressed="true">Manual</button>
-        <button data-mode="auto" aria-pressed="false">Automático · Pure Pursuit</button>
+        <button data-mode="auto" aria-pressed="false">Misión por puntos</button>
       </div>
       <div class="joy" id="joy" role="application" aria-label="Joystick: arrastra para mover el robot"><div class="knob" id="knob"></div></div>
       <div class="card">
@@ -94,6 +101,14 @@
         <button class="btn" id="bBocina">Bocina</button>
         <button class="btn stop" id="bParar">Parar</button>
       </div>
+      <button class="btn estop" id="bEstop" aria-pressed="false">Paro de emergencia</button>
+      <div class="card">
+        <div class="card-h"><h2>Misión por puntos</h2><small id="wpCount">misión de la finca</small></div>
+        <ol class="mission" id="missionList"></ol>
+        <div class="row"><button class="btn small go" id="bConfirm" disabled>Confirmar carga</button><button class="btn small" id="bDraw" aria-pressed="false">Dibujar ruta en el mapa</button><button class="btn small" id="bClearWp">Misión de la finca</button></div>
+        <label class="check"><input type="checkbox" id="autoConfirm" checked> Confirmar solo a los 3 s (simula al recolector y al encargado del acopio)</label>
+        <p class="muted small">La Raspberry Pi recorre los puntos con Pure Pursuit, espera en el punto de carga y en el acopio, y vuelve a empezar. Con batería baja regresa al acopio.</p>
+      </div>
       <div class="row">
         <button class="btn go" id="bInicio" style="flex:1.4 1 0">Volver al inicio</button>
         <button class="btn" id="bBorrar">Borrar ruta</button>
@@ -101,7 +116,7 @@
       <div class="card">
         <div class="card-h"><h2>Carga transportada</h2><small id="loadLbl">0,0 kg</small></div>
         <input type="range" id="load" min="0" max="2" step="0.1" value="0" aria-label="Carga en kilogramos">
-        <p class="muted small" id="loadNote">Pon peso encima de la caja y mira cómo cambian la velocidad, la corriente y la capacidad de girar.</p>
+        <p class="muted small" id="loadNote">El prototipo de validación lleva hasta 2 kg. Mira cómo cambian la velocidad, la corriente y la capacidad de subir la ladera.</p>
       </div>
       <div class="card">
         <div class="card-h"><h2>Gráficas en vivo</h2><small>últimos 60 s</small></div>
@@ -112,20 +127,20 @@
         <div class="row"><button class="btn small" id="bCsv">Descargar datos (CSV)</button></div>
       </div>
       <div class="card">
-        <div class="card-h"><h2>Ruta personalizada</h2><small id="wpCount">0 puntos</small></div>
-        <p class="muted small">Dibuja tu propia ruta tocando el piso y el modo automático la recorre con Pure Pursuit.</p>
-        <div class="row"><button class="btn small" id="bDraw" aria-pressed="false">Dibujar en el piso</button><button class="btn small" id="bClearWp">Borrar puntos</button></div>
+        <div class="card-h"><h2>Finca y comunicación</h2><small>escenario</small></div>
+        <div class="row"><button class="btn small" id="bAddObs">Poner bulto delante</button><button class="btn small" id="bClrObs">Quitar bultos</button><button class="btn small" id="bDefObs">Bultos originales</button></div>
+        <label class="lbl-row" for="gnssMode">Corrección GNSS</label>
+        <select id="gnssMode"><option value="auto">Autónomo · NEO-M8N (≈ 2 m)</option><option value="rtk">RTK · ZED-F9P (≈ 2 cm)</option></select>
+        <div class="row"><button class="btn small" id="bLink" aria-pressed="false">Cortar enlace LoRa</button><button class="btn small" id="bOverview">Ver toda la finca</button></div>
+        <p class="muted small">Bajo los árboles de sombrío el error del GNSS se triplica. Para circular por las calles de 1 m entre surcos hace falta RTK.</p>
       </div>
       <div class="card">
-        <div class="card-h"><h2>Escenario</h2><small>cajas de cartón</small></div>
-        <div class="row"><button class="btn small" id="bAddObs">Poner caja delante</button><button class="btn small" id="bClrObs">Quitar cajas</button><button class="btn small" id="bDefObs">Cajas originales</button></div>
-      </div>
-      <div class="card">
-        <div class="card-h"><h2>Telemetría</h2><small>ESP32 → L298N</small></div>
+        <div class="card-h"><h2>Telemetría</h2><small>Raspberry Pi ⇄ ESP32 → L298N</small></div>
         <div class="pwm">
           <span>Motor A</span><div class="bar"><i id="pwmA"></i></div><span class="mono" id="pwmAv">0</span>
           <span>Motor B</span><div class="bar"><i id="pwmB"></i></div><span class="mono" id="pwmBv">0</span>
         </div>
+        <div class="links" id="links"></div>
         <div class="pins" id="pinsMini"></div>
         <dl class="kv two">
           <dt>Corriente</dt><dd id="tI">0 mA</dd>
@@ -134,13 +149,17 @@
       </div>
       <div class="card">
         <div class="card-h"><h2>Modelo físico</h2><small>valores estimados</small></div>
-        <label class="lbl-row" for="slip">Deslizamiento en giros <b id="slipLbl">χ = 1,6</b></label>
+        <label class="lbl-row" for="slip">Deslizamiento en giros (camino) <b id="slipLbl">χ = 1,6</b></label>
         <input type="range" id="slip" min="100" max="250" value="160">
-        <label class="check"><input type="checkbox" id="comp" checked> El control compensa el deslizamiento (usa χ al calcular los giros)</label>
+        <label class="check"><input type="checkbox" id="comp" checked> El control compensa el deslizamiento (usa el χ que estima el filtro de Kalman; en barro y suelo suelto χ sube)</label>
+        <label class="lbl-row" for="cells">Baterías</label>
+        <select id="cells"><option value="2">2 celdas 18650 en serie · 7,4 V (montaje actual)</option><option value="3">3 celdas 18650 en serie · 11,1 V (recomendado)</option></select>
+        <label class="lbl-row" for="simspeed">Velocidad de la simulación</label>
+        <select id="simspeed"><option value="1">Tiempo real</option><option value="2">× 2</option><option value="4">× 4</option><option value="8">× 8</option></select>
         <label class="lbl-row" for="tscale">Velocidad de descarga de la batería</label>
         <select id="tscale"><option value="1">Tiempo real</option><option value="30">× 30</option><option value="120">× 120</option></select>
         <p class="muted small" id="physNote"></p>
-        <div class="row"><button class="btn small" id="bReset">Robot al centro</button><button class="btn small" id="bRecharge">Cargar batería</button></div>
+        <div class="row"><button class="btn small" id="bReset">Robot al punto de carga</button><button class="btn small" id="bRecharge">Cargar batería</button></div>
       </div>
     </aside>
   </section>
@@ -156,13 +175,13 @@
         <button class="btn small" id="cRestore">Restaurar cableado</button>
       </div>
       <p class="sch-hint" id="schHint" hidden></p>
-      <div class="sch-legend"><span><i style="background:var(--w-red)"></i>7,4 V</span><span><i style="background:var(--w-5v)"></i>5 V</span><span><i style="background:var(--w-3v3)"></i>3,3 V</span><span><i style="background:var(--w-gnd)"></i>GND</span><span><i style="background:var(--w-sig)"></i>Señal</span><span><i style="background:var(--w-bus)"></i>Datos</span><span><i style="background:var(--w-mot)"></i>Motor</span></div>
+      <div class="sch-legend"><span><i style="background:var(--w-red)"></i>Batería</span><span><i style="background:var(--w-5v)"></i>5 V</span><span><i style="background:var(--w-3v3)"></i>3,3 V</span><span><i style="background:var(--w-gnd)"></i>GND</span><span><i style="background:var(--w-sig)"></i>Señal</span><span><i style="background:var(--w-bus)"></i>Datos</span><span><i style="background:var(--w-mot)"></i>Motor</span></div>
     </div>
     <aside class="insp">
       <div class="card" id="inspector"></div>
       <div class="card"><div class="card-h"><h2>Revisión eléctrica</h2></div><div id="warnings" class="warns"></div></div>
       <div class="card"><div class="card-h"><h2>Consumo de corriente</h2><small>en vivo</small></div><div id="budget"></div></div>
-      <div class="card"><div class="card-h"><h2>Código para la ESP32</h2><small>Arduino</small></div><p class="muted small">Genera un programa base con los pines del cableado actual: punto de acceso WiFi, control de motores y freno con el sensor si está conectado.</p><div class="row"><button class="btn small" id="bCode">Ver código</button></div></div>
+      <div class="card"><div class="card-h"><h2>Programas</h2><small>ESP32 · Raspberry Pi</small></div><p class="muted small">Genera el firmware de la ESP32 con los pines del cableado actual (lazo de motores, enlace serie con la Raspberry Pi, radio LoRa, ultrasonido y paro de emergencia) y el programa de la Raspberry Pi en Python (GNSS, filtro de Kalman, Pure Pursuit y misión por puntos).</p><div class="row"><button class="btn small" id="bCode">Firmware ESP32</button><button class="btn small" id="bCodePi">Programa Raspberry Pi</button></div></div>
     </aside>
   </section>
 
@@ -183,9 +202,9 @@
     <div class="proj-in">
       <p class="eyebrow">Objetivo específico 5 · validación</p>
       <h1 class="proj-title">Banco de pruebas simulado</h1>
-      <p class="lead">Ejecuta en el gemelo digital las mismas pruebas que harán con el robot real: recorrido recto, giro en el sitio, seguimiento de ruta con y sin compensación, frenado, carga y autonomía. Sirve para preparar el protocolo y comparar después con las mediciones físicas.</p>
+      <p class="lead">Ejecuta en la finca virtual las pruebas del protocolo del informe (capítulo 11): recto en el camino, giro, barro, ladera de 10° y 15° con carga, misión completa hasta el acopio, calle entre surcos con GNSS autónomo y con RTK, frenado ante un bulto, corte del enlace y autonomía con 2 y 3 celdas. Sirve para preparar el protocolo y comparar después con las mediciones físicas.</p>
       <div class="row"><button class="btn go" id="bRunTests" style="flex:0 0 auto">Ejecutar pruebas</button><button class="btn" id="bTestsCsv" style="flex:0 0 auto" disabled>Descargar CSV</button><button class="btn" id="bTestsCopy" style="flex:0 0 auto" disabled>Copiar tabla</button></div>
-      <p class="muted small" id="testsStatus">Usa la configuración actual del robot (piezas, cableado, deslizamiento y batería).</p>
+      <p class="muted small" id="testsStatus">Usa la configuración actual del robot (piezas, cableado, deslizamiento y batería). Las pruebas de GNSS agregan de forma temporal la Raspberry Pi alimentada, el receptor, los encoders y la IMU.</p>
       <div class="card"><div class="tbl-wrap"><table class="results"><thead><tr><th>Prueba</th><th>Resultado</th><th>Detalle</th></tr></thead><tbody id="testsBody"><tr><td colspan="3" class="muted">Todavía no hay resultados.</td></tr></tbody></table></div></div>
       <p class="muted small">Estos resultados vienen de un modelo con valores estimados. No reemplazan las pruebas físicas: úsalos como referencia y reporta en el informe los datos medidos.</p>
     </div>
@@ -194,25 +213,29 @@
   <!-- ===================== PROYECTO ===================== -->
   <section id="tab-proj" class="tab proj" data-tab="proj" aria-label="Proyecto" hidden>
     <div class="proj-in">
-      <p class="eyebrow">Corporación Universitaria Rafael Núñez · Ingeniería de Sistemas · 2025</p>
-      <h1 class="proj-title">Prototipo de vehículo terrestre autónomo de orugas para el transporte de carga</h1>
+      <p class="eyebrow">Corporación Universitaria Rafael Núñez · Ingeniería de Sistemas · 2026 · versión 3</p>
+      <h1 class="proj-title">Prototipo de vehículo terrestre autónomo de orugas para el transporte de la cosecha en fincas y cultivos</h1>
       <p class="lead">Gabriel Enrique Zambrano Mosquera · Juan Pablo Hoyos Manjarres<br><span class="muted">Director: Miguel Alberto Caro Álvarez</span></p>
       <div class="tiles" id="tiles"></div>
       <div class="cols">
-        <div class="card"><h2>Objetivo general</h2><p>Diseñar y construir un prototipo de vehículo terrestre autónomo de orugas para el transporte de carga en ambientes interiores, integrando locomoción controlada, localización por visión artificial, navegación autónoma y detección de obstáculos, y evaluar su viabilidad técnica con pruebas en un entorno controlado.</p></div>
+        <div class="card"><h2>Objetivo general</h2><p>Diseñar y construir un prototipo de vehículo terrestre de orugas de bajo costo, controlado por una Raspberry Pi, que transporte la cosecha desde el cultivo hasta el punto de acopio en fincas con terreno irregular, operado a distancia o en modo autónomo por puntos de ruta, y evaluar su viabilidad técnica mediante pruebas en banco, en patio y en finca.</p>
+          <p class="muted small">El robot <b>no recolecta</b>: lleva lo que los trabajadores ya cosecharon, para que sigan en el surco mientras la carga avanza sola.</p>
+          <div class="row"><a class="btn small" href="docs/informe-version-3.pdf" target="_blank" rel="noopener">Leer el informe (PDF)</a><a class="btn small" href="docs/informe-version-3.docx" download>Descargar Word</a></div></div>
         <div class="card"><h2>Arquitectura</h2>
           <ol class="arch">
-            <li><b>Potencia:</b> 2 celdas 18650 de 3,7 V en serie (7,4 V) → L298N → motores 33GB520.</li>
-            <li><b>Bajo nivel:</b> ESP32 genera el PWM (GPIO 14 y 32) y el sentido de giro (GPIO 27, 26, 25 y 33) y sirve la app en 192.168.4.1.</li>
-            <li><b>Alto nivel:</b> Raspberry Pi 3 con cámara para leer marcadores ArUco y planificar la ruta.</li>
-            <li><b>Control:</b> Pure Pursuit con compensación del deslizamiento y fusión de sensores (EKF).</li>
+            <li><b>Unidad central (Raspberry Pi 3):</b> máquina de estados, misión por puntos, lectura del GNSS, filtro de Kalman, Pure Pursuit, enlace con el operador y registro. Se alimenta de un DC-DC de 5 V / 3 A.</li>
+            <li><b>Tiempo real (ESP32):</b> PWM y sentido de los motores (GPIO 14, 27, 26, 25, 33 y 32), encoders, IMU, ultrasonido, radio LoRa (GPIO 18/19) y seguridad. Se une a la Raspberry Pi por UART2 (RX2/TX2 ↔ GPIO 14/15).</li>
+            <li><b>Potencia:</b> 18650 en serie (2 celdas hoy, 3 recomendadas) → paro de emergencia → L298N → motores 33GB520.</li>
+            <li><b>Localización:</b> GNSS como ancla absoluta, encoders e IMU bajo los árboles y ArUco solo en la llegada al acopio.</li>
           </ol></div>
       </div>
       <div class="card"><h2>Qué muestra este gemelo digital</h2>
         <ul class="steps">
-          <li><b>Simulador:</b> maneja el robot como en la app real. El modo automático recorre los marcadores con Pure Pursuit; desactiva la compensación para ver cómo crece el error de seguimiento.</li>
-          <li><b>Odometría:</b> con encoders montados aparece la posición estimada (línea punteada). Sin IMU ni cámara se aleja de la real por el deslizamiento; con ellas se corrige.</li>
-          <li><b>Circuito:</b> el esquema refleja las conexiones reales. Si conectas un pin mal, la revisión eléctrica lo marca y el simulador deja de mover ese motor.</li>
+          <li><b>Finca:</b> parcela de 36 × 36 m con dos lotes de café (uno en ladera de 10° y 15°), camino de servicio, charcos de barro, árboles de sombrío, recolectores y un acopio con báscula.</li>
+          <li><b>Misión por puntos:</b> la Raspberry Pi lleva el robot de A (carga) a B, C, D y al acopio, espera la descarga y regresa. Puedes dibujar tu propia ruta sobre el terreno.</li>
+          <li><b>Localización:</b> los puntos morados son las lecturas del GNSS; la línea punteada naranja es la posición que estima el filtro de Kalman. Bajo los árboles el error crece; con RTK casi desaparece.</li>
+          <li><b>Seguridad:</b> el ultrasonido frena ante bultos y personas, el paro de emergencia corta la potencia y, si se corta el enlace LoRa, el robot se detiene en menos de 1,5 s.</li>
+          <li><b>Circuito:</b> el esquema refleja las conexiones reales, incluido el puerto serie entre la Raspberry Pi y la ESP32. Si conectas un pin mal, la revisión eléctrica lo marca y el simulador deja de mover ese motor o de ejecutar la misión.</li>
         </ul></div>
       <div class="card"><h2>Supuestos del modelo</h2>
         <div class="tbl-wrap"><table><thead><tr><th>Dato</th><th>Valor usado</th><th>Origen</th></tr></thead><tbody>
@@ -220,11 +243,16 @@
           <tr><td>Motores</td><td>9–12 V, 3,5 kg·cm, 100 mA sin carga; 350 RPM a 12 V</td><td>Ficha del vendedor (RPM: extremo del rango)</td></tr>
           <tr><td>Rueda de tracción</td><td>≈ 52 mm de diámetro</td><td>Estimado de fotos</td></tr>
           <tr><td>Caída del L298N</td><td>1,8 V</td><td>Típico de puente bipolar</td></tr>
-          <tr><td>Baterías</td><td>2 × 3,7 V nominal (8,4 V llenas, 6,0 V vacías), 2600 mAh</td><td>Código LGABB41865 (verificar)</td></tr>
+          <tr><td>Baterías</td><td>2 o 3 × 3,7 V nominal en serie, 2600 mAh</td><td>Código LGABB41865 (verificar)</td></tr>
           <tr><td>Corriente por motor</td><td>0,1 A + 0,9 A × PWM</td><td>Estimado; medir con amperímetro</td></tr>
-          <tr><td>Deslizamiento χ</td><td>1,6 (ajustable)</td><td>Rango típico de orugas en piso liso</td></tr>
+          <tr><td>Deslizamiento χ</td><td>1,6 en el camino (ajustable); × 1,1 en el lote y × 1,3 en barro</td><td>Estimado; el filtro de Kalman lo estima en línea</td></tr>
+          <tr><td>Resistencia a la rodadura</td><td>0,08 camino · 0,10 lote · 0,15 barro</td><td>0,06–0,1 medido en suelo agrícola; 0,15 conservador para barro</td></tr>
+          <tr><td>Ladera</td><td>10° y luego 15° en el lote 2</td><td>Pendiente de diseño del prototipo (informe, sección 10.8)</td></tr>
+          <tr><td>GNSS</td><td>σ ≈ 1,7 m autónomo · 2 cm RTK · ×3 bajo árboles</td><td>NEO-M8N ≈ 2 m CEP; ZED-F9P 0,01 m + 1 ppm</td></tr>
+          <tr><td>Enlace con el operador</td><td>Parada si falta el latido 1 s</td><td>Requisito de seguridad del informe (tabla 18)</td></tr>
         </tbody></table></div></div>
-      <div class="card"><div class="card-h"><h2>Lista de materiales y presupuesto</h2><small>escribe los precios</small></div>
+      <div class="card"><div class="card-h"><h2>Lista de materiales y presupuesto</h2><small>precios de referencia editables</small></div>
+        <p class="muted small">Los precios vienen precargados con los valores verificados en Electronilab (octubre de 2026) que usa el informe; los vacíos no se pudieron verificar. Puedes cambiarlos.</p>
         <div class="tbl-wrap"><table class="bom"><thead><tr><th>Pieza</th><th>Estado</th><th>Cant.</th><th>Precio unitario (COP)</th><th class="r">Subtotal</th></tr></thead><tbody id="bomBody"></tbody><tfoot><tr><td colspan="4"><b>Total</b></td><td class="r mono" id="bomTotal">$ 0</td></tr></tfoot></table></div>
         <div class="row"><button class="btn small" id="bBomCsv">Descargar presupuesto (CSV)</button></div>
         <p class="muted small">Los precios se guardan en este navegador.</p></div>
@@ -238,16 +266,17 @@
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-<script src="vendor/three.min.js?v=13"></script>
-<script src="vendor/OrbitControls.js?v=13"></script>
-<script src="vendor/RoomEnvironment.js?v=13"></script>
-<script src="js/data.js?v=13"></script>
-<script src="js/models.js?v=13"></script>
-<script src="js/state.js?v=13"></script>
-<script src="js/sim.js?v=13"></script>
-<script src="js/circuit.js?v=13"></script>
-<script src="js/catalog.js?v=13"></script>
-<script src="js/code.js?v=13"></script>
-<script src="js/app.js?v=13"></script>
+<script src="vendor/three.min.js?v=18"></script>
+<script src="vendor/OrbitControls.js?v=18"></script>
+<script src="vendor/RoomEnvironment.js?v=18"></script>
+<script src="js/data.js?v=18"></script>
+<script src="js/models.js?v=18"></script>
+<script src="js/state.js?v=18"></script>
+<script src="js/sim.js?v=18"></script>
+<script src="js/circuit.js?v=18"></script>
+<script src="js/catalog.js?v=18"></script>
+<script src="js/code.js?v=18"></script>
+<script src="js/codepi.js?v=18"></script>
+<script src="js/app.js?v=18"></script>
 </body>
 </html>

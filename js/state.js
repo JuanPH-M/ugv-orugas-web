@@ -1,14 +1,14 @@
 /* Estado compartido, eventos y análisis eléctrico del circuito */
 (function () {
 'use strict';
-const KEY = 'ugv-orugas-v1';
+const KEY = 'ugv-orugas-v2'; // v2: finca (v1 era la habitación)
 const bus = {};
 UGV.on = (ev, fn) => { (bus[ev] = bus[ev] || []).push(fn); };
 UGV.emit = (ev, d) => { (bus[ev] || []).forEach(fn => fn(d)); };
 
 const def = () => ({
   on: Object.fromEntries(UGV.PARTS.map(p => [p.id, !!p.on])),
-  pos: {}, sch: {}, custom: [], removed: [], switchClosed: true
+  pos: {}, sch: {}, custom: [], removed: [], switchClosed: true, estopPressed: false, cells: 2, gnssMode: 'auto'
 });
 let saved = null;
 try { saved = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (_) { }
@@ -29,7 +29,7 @@ UGV.netlist = () => {
   UGV.WIRES.forEach(w => {
     const pa = w.a.split('.')[0], pb = w.b.split('.')[0];
     if (!S.on[pa] || !S.on[pb]) return;
-    if (w.unless && S.on[w.unless]) return;
+    if (w.unless && [].concat(w.unless).some(id => S.on[id])) return;
     if (S.removed.includes(wkey(w))) return;
     list.push(Object.assign({ key: wkey(w), std: true }, w));
   });
@@ -68,6 +68,7 @@ UGV.analyze = (vbat = 7.4) => {
   UGV.PARTS.forEach(p => { if (S.on[p.id]) p.pins.forEach(pin => add(p.id + '.' + pin.id)); });
   wires.forEach(w => union(w.a, w.b));
   if (S.on.switch && S.switchClosed) union('switch.IN', 'switch.OUT');
+  if (S.on.estop && !S.estopPressed) union('estop.IN', 'estop.OUT');
   const groups = {};
   Object.keys(parent).forEach(k => { const r = find(k); (groups[r] = groups[r] || []).push(k); });
 
@@ -108,6 +109,12 @@ UGV.analyze = (vbat = 7.4) => {
     else if (v > 5.5) W.push({ lvl: 'danger', parts: ['rpi'], text: `La Raspberry Pi recibe ${v} V en el pin de 5 V.` });
   }
   if (S.on.cam && !S.on.rpi) W.push({ lvl: 'warn', parts: ['cam'], text: 'La cámara necesita la Raspberry Pi.' });
+  if (S.on.gnss && !S.on.rpi) W.push({ lvl: 'warn', parts: ['gnss'], text: 'El receptor GNSS se conecta a la Raspberry Pi.' });
+  if (S.on.rpi && S.on.esp32 && !(netOf('rpi.TX') === netOf('esp32.RX2') && netOf('esp32.TX2') === netOf('rpi.RX')))
+    W.push({ lvl: 'warn', parts: ['rpi', 'esp32'], text: 'La Raspberry Pi y la ESP32 no están unidas por el puerto serie (GPIO 14/15 ↔ RX2/TX2): el modo automático no puede mandar órdenes a los motores.' });
+  else if (S.on.rpi && S.on.esp32 && netOf('rpi.GND') !== netOf('esp32.GND')) W.push({ lvl: 'warn', parts: ['rpi', 'esp32'], text: 'La Raspberry Pi y la ESP32 no comparten tierra: el enlace serie no funcionará.' });
+  if (S.on.estop && S.estopPressed) W.push({ lvl: 'info', parts: ['estop'], text: 'Paro de emergencia pulsado: los motores no tienen potencia. Suéltalo para volver a moverte.' });
+  if (S.on.l298n && !S.on.estop) W.push({ lvl: 'info', parts: ['estop'], text: 'Falta el paro de emergencia físico en la línea de potencia de los motores (requisito RNF6).' });
   if (S.on.esp32 && (vAt('esp32.VIN') || 0) < 4.5) W.push({ lvl: 'warn', parts: ['esp32'], text: 'La ESP32 no recibe 5 V en VIN.' });
   if (S.on.l298n && (vAt('l298n.12V') || 0) < 6) W.push({ lvl: 'warn', parts: ['l298n'], text: S.on.switch && !S.switchClosed ? 'Interruptor apagado: el L298N no tiene energía.' : 'El L298N no recibe la tensión de las baterías.' });
   ['motorA', 'motorB'].forEach(m => { if (S.on[m] && (groups[netOf(m + '.M+')] || []).length < 2) W.push({ lvl: 'info', parts: [m], text: `${UGV.part(m).name} no está conectado al driver.` }); });
