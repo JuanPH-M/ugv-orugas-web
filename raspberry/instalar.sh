@@ -30,6 +30,7 @@ mkdir -p "$DEST"
 cp ugv.py "$DEST/"
 cp -r web "$DEST/"
 [ -f "$DEST/config.json" ] || cp config.json "$DEST/"
+[ -f "$DEST/finca.json" ] || cp finca.json "$DEST/"   # el mapa de tu finca no se sobrescribe
 
 echo "4/5  Servicio que arranca al encender"
 cp ugv.service /etc/systemd/system/ugv.service

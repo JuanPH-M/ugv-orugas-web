@@ -8,6 +8,7 @@ const root = path.join(__dirname, '..');
 const FILES = [
   ['ugv.py', 'Programa principal (Python 3)'],
   ['web/index.html', 'Página de control del celular'],
+  ['finca.json', 'Mapa de la finca (puntos, caminos y lotes)'],
   ['config.json', 'Configuración'],
   ['instalar.sh', 'Instalador'],
   ['ugv.service', 'Servicio de arranque'],

@@ -4,6 +4,7 @@ Arrancan el servidor real en un puerto libre y lo usan como lo haría el celular
     python -m unittest raspberry/test_ugv.py
 """
 import json
+import math
 import os
 import shutil
 import sys
@@ -38,6 +39,22 @@ class PruebasUGV(unittest.TestCase):
         self.post("/api/parar", {"cliente": "a"})
         self.ctl.duenio = None
         self.ctl.modo = ugv.ESPERA
+        # robot en su puesto y calibración rápida para que las pruebas duren poco
+        self.ctl.pos, self.ctl.rumbo, self.ctl.tour_i = "PUESTO", 90.0, 0
+        self.ctl.cfg.update(cm_s=4000.0, grados_s=1800.0, espera_s=0.05)
+
+    def esperar(self, cond, seg=5, latir=True):
+        """Consulta el estado (y envía latidos como la página) hasta que se cumpla la condición."""
+        fin, vistos = time.time() + seg, []
+        while time.time() < fin:
+            if latir:
+                self.post("/api/latido", {"cliente": "a"})
+            e = self.estado()
+            vistos.append(e)
+            if cond(e):
+                return e, vistos
+            time.sleep(0.02)
+        self.fail("no se cumplió la condición; último estado: " + json.dumps(vistos[-1]["auto"]))
 
     def pedir(self, ruta, cuerpo=None, metodo=None):
         datos = json.dumps(cuerpo).encode() if cuerpo is not None else None
@@ -156,6 +173,101 @@ class PruebasUGV(unittest.TestCase):
             self.assertEqual((e["izq"], e["der"]), (100, 90))
         finally:
             self.ctl.cfg["factor_der"] = 1.0
+
+    # ---------------------------------------------------------------- modo automático por la finca
+    def test_el_mapa_no_deja_caminos_sobre_los_cultivos(self):
+        m = ugv.Mapa(os.path.join(os.path.dirname(ugv.__file__), "finca.json"))
+        for a, b in m.datos["caminos"]:
+            for lote in m.lotes:
+                self.assertGreaterEqual(ugv.distancia_segmento_lote(m._xy(a), m._xy(b), lote), m.margen, (a, b, lote["nombre"]))
+        malo = dict(m.datos, caminos=m.datos["caminos"] + [["J1", "C"]])   # cruzaría el cafetal y la platanera
+        ruta = os.path.join(self.tmp, "malo.json")
+        with open(ruta, "w", encoding="utf-8") as f:
+            json.dump(malo, f)
+        with self.assertRaises(ValueError):
+            ugv.Mapa(ruta)
+
+    def test_ruta_mas_corta_solo_por_caminos(self):
+        m = self.ctl.mapa
+        self.assertEqual(m.ruta("PUESTO", "C"), ["PUESTO", "J1", "J2", "J3", "C"])
+        self.assertEqual(m.ruta("A", "ALMACEN"), ["A", "B", "C", "J3", "ALMACEN"])
+
+    def test_automatico_pide_calibracion(self):
+        self.ctl.cfg.update(cm_s=None)
+        codigo, e = self.post("/api/ir", {"cliente": "a", "destino": "C"})
+        self.assertEqual(codigo, 400)
+        self.assertIn("calibra", e["error"])
+
+    def test_ir_directo_a_un_punto(self):
+        codigo, e = self.post("/api/ir", {"cliente": "a", "destino": "C"})
+        self.assertEqual((codigo, e["modo"]), (200, ugv.AUTO))
+        self.assertEqual(e["auto"]["plan"]["ruta"], ["PUESTO", "J1", "J2", "J3", "C"])
+        e, vistos = self.esperar(lambda e: e["modo"] == ugv.ESPERA)
+        self.assertEqual((e["auto"]["posicion"], e["auto"]["rumbo"], e["izq"], e["der"]), ("C", 90.0, 0, 0))
+        self.assertTrue(any(v["izq"] > 0 > v["der"] for v in vistos), "giró a la derecha en el cruce J3")
+
+    def test_recorrido_completo_espera_un_segundo_en_cada_punto(self):
+        self.ctl.cfg.update(espera_s=0.15)
+        self.post("/api/recorrido", {"cliente": "a", "desde_cero": True})
+        e, vistos = self.esperar(lambda e: e["modo"] == ugv.ESPERA, seg=10)
+        quietos = [v["auto"]["posicion"] for v in vistos if v["auto"]["posicion"] in ("A", "B", "C", "D", "ALMACEN") and v["izq"] == v["der"] == 0]
+        for p in ["A", "B", "C", "D", "ALMACEN"]:
+            self.assertIn(p, quietos, "se detuvo en " + p)
+        self.assertEqual((e["auto"]["posicion"], e["auto"]["tour_i"]), ("PUESTO", 0))
+
+    def test_espera_la_orden_del_usuario_y_permite_elegir_el_proximo_punto(self):
+        self.post("/api/recorrido", {"cliente": "a", "desde_cero": True, "esperar_orden": True})
+        e, _ = self.esperar(lambda e: e["modo"] == ugv.ESPERANDO)
+        self.assertEqual((e["auto"]["posicion"], e["auto"]["siguiente"]), ("A", "B"))
+        time.sleep(0.4)                                        # esperando no exige latidos ni mueve motores
+        self.assertEqual((self.estado()["modo"], self.estado()["izq"]), (ugv.ESPERANDO, 0))
+        self.assertEqual(self.post("/api/siguiente", {"cliente": "a"})[0], 200)
+        e, _ = self.esperar(lambda e: e["modo"] == ugv.ESPERANDO and e["auto"]["posicion"] == "B")
+        codigo, e = self.post("/api/ir", {"cliente": "a", "destino": "ALMACEN", "esperar_orden": True})   # cambia el próximo punto
+        self.assertEqual((codigo, e["auto"]["plan"]["ruta"]), (200, ["B", "C", "J3", "ALMACEN"]))
+        e, _ = self.esperar(lambda e: e["modo"] == ugv.ESPERANDO and e["auto"]["posicion"] == "ALMACEN")
+        self.post("/api/siguiente", {"cliente": "a"})
+        e, _ = self.esperar(lambda e: e["modo"] == ugv.ESPERA)
+        self.assertEqual(e["auto"]["posicion"], "ALMACEN")
+
+    def test_detenerlo_en_el_camino_pierde_la_posicion(self):
+        self.ctl.cfg.update(cm_s=50.0)
+        self.post("/api/ir", {"cliente": "a", "destino": "A"})
+        time.sleep(0.2)
+        _, e = self.post("/api/parar", {"cliente": "a"})
+        self.assertIsNone(e["auto"]["posicion"])
+        self.assertEqual(self.post("/api/ir", {"cliente": "a", "destino": "B"})[0], 400)
+        codigo, e = self.post("/api/posicion", {"cliente": "a", "punto": "PUESTO"})
+        self.assertEqual((codigo, e["auto"]["posicion"], e["auto"]["rumbo"]), (200, "PUESTO", 90.0))
+
+    def test_calibracion_guarda_cm_por_segundo_y_grados_por_segundo(self):
+        codigo, e = self.post("/api/calibracion", {"cliente": "a", "medido_cm": 220, "medido_grados": 600, "vel_auto": 60})
+        self.assertEqual((codigo, e["auto"]["cm_s"], e["auto"]["grados_s"]), (200, 22.0, 60.0))
+        with open(os.path.join(self.tmp, "config.json"), encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["cm_s"], 22.0)
+        codigo, e = self.post("/api/calibrar", {"cliente": "a", "prueba": "avance"})
+        self.assertEqual((codigo, e["modo"]), (200, ugv.RECORRIDO))
+        e, _ = self.esperar(lambda e: e["izq"] == e["der"] == 60)
+        self.post("/api/parar", {"cliente": "a"})
+
+    def test_calibracion_corrige_el_desvio_entre_motores(self):
+        self.ctl.cfg.update(factor_izq=1.0, factor_der=1.0)
+        try:
+            # 220 cm en 10 s, 600° en 10 s y 12 cm de desvío a la izquierda: la oruga derecha va más rápido
+            _, e = self.post("/api/calibracion", {"cliente": "a", "medido_cm": 220, "medido_grados": 600, "medido_desvio_cm": 12})
+            ancho = 2 * 22.0 / math.radians(60.0)
+            esperado = round(1 / (1 + 0.5 * 2 * 12 / 220 ** 2 * ancho), 4)
+            self.assertEqual((e["auto"]["factor_izq"], e["auto"]["factor_der"]), (1.0, esperado))
+            self.assertLess(esperado, 1)
+            _, e = self.post("/api/calibracion", {"cliente": "a", "medido_cm": 220, "medido_desvio_cm": -12})   # ahora se va a la derecha
+            self.assertEqual(e["auto"]["factor_der"], 1.0)
+        finally:
+            self.ctl.cfg.update(factor_izq=1.0, factor_der=1.0)
+
+    def test_mapa_para_la_pagina(self):
+        m = json.loads(self.pedir("/api/mapa")[1])
+        self.assertEqual(m["inicio"], "PUESTO")
+        self.assertEqual(len(m["lotes"]), 4)
 
 
 if __name__ == "__main__":

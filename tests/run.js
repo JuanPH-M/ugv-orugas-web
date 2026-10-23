@@ -67,13 +67,39 @@ base();
 console.log('Programa de la Raspberry Pi');
 const { generar, FILES } = require(path.join(root, 'tools', 'empaquetar.js'));
 ok(fs.readFileSync(path.join(root, 'js', 'codepi.js'), 'utf8') === generar(), 'js/codepi.js está al día con raspberry/ (si falla: node tools/empaquetar.js)');
-ok(UGV.PI_FILES.length === FILES.length && UGV.PI_FILES[0].name === 'ugv.py', 'la página incluye los archivos del programa real');
+ok(UGV.PI_FILES.length === FILES.length && UGV.PI_FILES[0].name === 'ugv.py' && UGV.PI_FILES.some(f => f.name === 'finca.json'), 'la página incluye los archivos del programa real y el mapa de la finca');
 const py = fs.readFileSync(path.join(root, 'raspberry', 'ugv.py'), 'utf8');
 [['PIN_ENA, PIN_IN1, PIN_IN2 = 12, 17, 27', 'motor A en GPIO 12, 17 y 27'], ['PIN_IN3, PIN_IN4, PIN_ENB = 22, 23, 13', 'motor B en GPIO 22, 23 y 13'],
  ['"timeout_ms": 800', 'parada sin órdenes a los 800 ms por defecto']].forEach(([s, m]) => ok(py.includes(s), m));
 ok(!/esp32|serial|uart/i.test(py), 'el programa no usa ESP32 ni puerto serie');
 const inst = fs.readFileSync(path.join(root, 'raspberry', 'instalar.sh'), 'utf8');
 ok(inst.includes('dtoverlay=pwm-2chan,pin=12,func=4,pin2=13,func2=4'), 'el instalador activa la PWM por hardware en GPIO 12 y 13');
+console.log('Modo automático: el simulador planea igual que la Raspberry Pi');
+const Auto = require(path.join(root, 'js', 'auto.js'));
+const finca = JSON.parse(fs.readFileSync(path.join(root, 'raspberry', 'finca.json'), 'utf8'));
+const mapa = Auto.Mapa(finca);
+ok(finca.caminos.every(([a, b]) => finca.lotes.every(l => Auto.distanciaSegmentoLote([finca.puntos[a].x, finca.puntos[a].y], [finca.puntos[b].x, finca.puntos[b].y], l) >= finca.margen_cm)),
+  `ningún camino pasa a menos de ${finca.margen_cm} cm de un lote de cultivo`);
+let cruza = false; try { Auto.Mapa(Object.assign({}, finca, { caminos: finca.caminos.concat([['J1', 'C']]) })); } catch (e) { cruza = /pisaría|cm del lote/.test(e.message); }
+ok(cruza, 'un camino que atraviesa los cultivos se rechaza al cargar el mapa');
+const cfgAuto = { vel_auto: 60, cm_s: 21.7, grados_s: 54.9, espera_s: 1, pausa_giro_s: .5 };
+const casos = [['PUESTO', 90, finca.orden.concat([finca.inicio]), false], ['PUESTO', 90, ['C'], false], ['B', 0, ['ALMACEN'], true], ['D', 0, ['A', 'PUESTO'], false]];
+const pyPlan = (exe) => execFileSync(exe, ['-c', `import sys, json; sys.path.insert(0, 'raspberry'); import ugv
+m = ugv.Mapa('raspberry/finca.json'); cfg = dict(ugv.CONFIG_DEF, **json.loads(sys.argv[1]))
+print(json.dumps([ugv.plan_auto(m, d, r, t, cfg, e) for d, r, t, e in json.loads(sys.argv[2])]))`, JSON.stringify(cfgAuto), JSON.stringify(casos)], { cwd: root, encoding: 'utf8' });
+let planPy = null;
+for (const exe of process.platform === 'win32' ? ['python', 'py'] : ['python3', 'python']) { try { planPy = JSON.parse(pyPlan(exe)); break; } catch (e) { if (e.code !== 'ENOENT') { ok(false, 'el planificador de Python corre: ' + String(e.stderr || e.message).split('\n').slice(-2).join(' ')); break; } } }
+if (planPy) casos.forEach(([d, r, t, e], i) => {
+  const js = Auto.plan(mapa, d, r, t, cfgAuto, e), [pp, pn] = planPy[i];
+  const igual = js.nodos.join() === pn.join() && js.pasos.length === pp.length && js.pasos.every((p, k) => {
+    const q = pp[k]; return p.tipo === q.tipo && p.llega === q.llega && p.hacia === q.hacia && String(p.esperar) === String(q.esperar) &&
+      Math.abs((p.duracion || 0) - (q.duracion || 0)) < .011 && (!p.fin || (p.fin.pos === q.fin.pos && Math.abs(p.fin.rumbo - q.fin.rumbo) < .11)); });
+  ok(igual, `mismos pasos en JavaScript y en Python: ${d} → ${t.join(', ')} (${js.pasos.length} pasos)`);
+});
+const tour = Auto.plan(mapa, 'PUESTO', 90, finca.orden.concat(['PUESTO']), cfgAuto, false);
+ok(finca.orden.every(p => tour.pasos.some(q => q.llega === p && q.esperar === 1)), 'el recorrido completo se detiene 1 s en cada punto');
+ok(tour.pasos.some(q => q.tipo === 'retroceder') && !tour.pasos.some(q => /izquierda|derecha/.test(q.tipo) && q.duracion > 135 / cfgAuto.grados_s), 'no da medias vueltas: retrocede en línea recta');
+
 let ran = false;
 for (const exe of process.platform === 'win32' ? ['python', 'py'] : ['python3', 'python']) {
   try {

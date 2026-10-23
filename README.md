@@ -16,8 +16,9 @@ El informe está en [`docs/informe.pdf`](docs/informe.pdf) (Word: [`docs/informe
 
 La carpeta [`raspberry/`](raspberry/) tiene el programa que corre en el prototipo, listo para instalar (instrucciones en [`raspberry/README.md`](raspberry/README.md)):
 
-- `ugv.py`: servidor web, **PWM por hardware** en GPIO 12 (ENA) y GPIO 13 (ENB), sentido de giro en GPIO 17, 27, 22 y 23, recorridos por tramos, **parada si dejan de llegar órdenes** y registro CSV de las pruebas. Solo usa Python 3 y `gpiozero`, que ya vienen en Raspberry Pi OS.
-- `web/index.html`: la página que se abre en el **celular** (flechas para mantener pulsadas, velocidad, editor de recorridos, datos de la prueba y registro).
+- `ugv.py`: servidor web, **PWM por hardware** en GPIO 12 (ENA) y GPIO 13 (ENB), sentido de giro en GPIO 17, 27, 22 y 23, **modo automático por los puntos de la finca** (solo por los caminos, sin pisar cultivos), recorridos por tramos, **parada si dejan de llegar órdenes** y registro CSV de las pruebas. Solo usa Python 3 y `gpiozero`, que ya vienen en Raspberry Pi OS.
+- `finca.json`: el mapa de la finca (puntos, caminos y lotes). El mismo archivo lo usa el simulador.
+- `web/index.html`: la página que se abre en el **celular**: flechas para mantener pulsadas, mapa de la finca con **recorrido completo**, **desde cero**, **siguiente punto** e **ir directo a un punto**, calibración, editor de tramos, datos de la prueba y registro.
 - `instalar.sh`, `ugv.service` y `config.json`: instalación con un comando, arranque automático y red Wi-Fi propia (**UGV-Orugas**, página en `http://10.42.0.1`).
 
 ```bash
@@ -28,7 +29,7 @@ python3 raspberry/ugv.py --simular          # probarlo sin hardware: http://loca
 
 | Sección | Para qué sirve |
 | --- | --- |
-| **Simulador** | Zona de pruebas con **superficie firme, tierra, arena, rampa de tierra** y mesa de banco, con las marcas A, B y C de la prueba P8. El robot ejecuta la **misma lógica del programa real**: control remoto (el joystick hace de celular) y **recorrido programado por tramos de tiempo**, en línea recta y en lazo abierto; la línea azul es lo previsto y al terminar se mide la desviación final. Se puede cortar el Wi-Fi (parada sin órdenes), **bloquear el programa** (los pines quedan en su último estado, la limitación del informe) y **desconectar la batería** (corte total). Carga de 0 a 2 kg, diferencia entre motores, factor de ajuste, gráficas y CSV. |
+| **Simulador** | Una **finca colombiana**: cafetal, platanera, maizal y huerta de yuca y fríjol, caminos de tierra de 1,6 m, **almacén de la cosecha**, **puesto del robot** con cargador, casa con techo de teja, guaduales, árboles, cerca de alambre y colinas, más un patio de pruebas (firme, tierra, arena y rampa) y la mesa del banco. El robot ejecuta **la misma lógica del programa real**: control remoto (el joystick hace de celular), **modo automático por los puntos** (recorrido completo con 1 s de espera en cada punto, desde cero, esperar tu orden y siguiente punto, ir directo a un punto) solo por los caminos, y recorrido por tramos. «Cultivos tocados» cuenta si el robot se sale del camino. Se puede cortar el Wi-Fi, **bloquear el programa** y **desconectar la batería**. |
 | **Circuito** | Esquema interactivo del diagrama final. La revisión eléctrica avisa si llegan 5 V a un GPIO, si falta la tierra común o si la Raspberry Pi se alimenta del 5 V del L298N. Desde aquí se ve y se descarga el programa de la Raspberry Pi. |
 | **Piezas** | Ficha de cada pieza con modelo 3D, especificaciones, pines y conexiones. |
 | **Pruebas** | Protocolo P1–P10 simulado: motores en banco, línea recta y giro en cada superficie, carga de 0, 1 y 2 kg, rampa, detención sin órdenes, recorrido A-B-C, consumo y calor en el L298N. Son valores de un modelo con supuestos: sirven para preparar el protocolo, no para el informe. |
@@ -47,7 +48,7 @@ npm run empaquetar   # copia raspberry/ dentro de js/codepi.js (después de edit
 npm test             # pruebas automáticas
 ```
 
-`npm test` revisa que el cableado sea exactamente el del diagrama final, que el análisis eléctrico detecte los errores típicos, que `js/codepi.js` esté al día con `raspberry/` y ejecuta las **pruebas de extremo a extremo del servidor real** (`raspberry/test_ugv.py`: pines del L298N, giro, parada sin órdenes, recorridos con y sin latido, control desde dos celulares, validación y registro CSV). GitHub Actions las corre en cada envío.
+`npm test` revisa que el cableado sea exactamente el del diagrama final, que ningún camino del mapa pase por los cultivos, que el planificador del simulador (`js/auto.js`) dé **los mismos pasos** que el de la Raspberry Pi, que el análisis eléctrico detecte los errores típicos, que `js/codepi.js` esté al día con `raspberry/` y ejecuta las **pruebas de extremo a extremo del servidor real** (`raspberry/test_ugv.py`: pines del L298N, giro, parada sin órdenes, recorridos con y sin latido, control desde dos celulares, validación y registro CSV). GitHub Actions las corre en cada envío.
 
 ```
 index.html             interfaz
@@ -55,7 +56,9 @@ css/styles.css         estilos (tema claro y oscuro)
 js/data.js             piezas, pines y conexiones del diagrama final
 js/state.js            estado guardado y análisis eléctrico
 js/models.js           modelos 3D
-js/sim.js              zona de pruebas, física y programa de la Raspberry Pi simulado
+js/finca3d.js          la finca en 3D (lotes, caminos, almacén, puesto, casa, árboles y colinas)
+js/auto.js             planificación del modo automático (la misma de raspberry/ugv.py)
+js/sim.js              física y programa de la Raspberry Pi simulado
 js/circuit.js          esquema interactivo
 js/catalog.js          catálogo de piezas
 js/codepi.js           copia de raspberry/ para verla y descargarla desde la página (generado)

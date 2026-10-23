@@ -44,6 +44,13 @@ tr.cur td { background: color-mix(in srgb, var(--accent) 18%, transparent); }
 .toast { position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%); background: var(--fg); color: var(--bg); padding: 8px 14px; border-radius: 10px; font-size: 14px; opacity: 0; transition: opacity .2s; pointer-events: none; max-width: 90vw; z-index: 5; }
 .toast.show { opacity: 1; }
 small { color: var(--muted); }
+.mapa { width: 100%; height: auto; display: block; background: #6f8f3e; border-radius: 10px; touch-action: manipulation; }
+.puntos { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; }
+.puntos button { text-align: left; font-weight: 600; }
+.puntos button small { display: block; font-weight: 400; }
+.puntos button.aqui { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+.check { display: flex; gap: 8px; align-items: center; font-size: 14px; margin: 8px 0; color: var(--fg); }
+button.b:disabled { opacity: .45; }
 </style>
 </head>
 <body>
@@ -67,8 +74,33 @@ small { color: var(--muted); }
     <p><small>Mantén pulsada una flecha para moverte; al soltarla el vehículo se detiene. Si el celular deja de enviar órdenes durante <span id="tmo">800</span> ms, la Raspberry Pi detiene los motores. En un computador también sirven las flechas del teclado y la barra espaciadora.</small></p>
   </section>
 
+
   <section>
-    <h2>Recorrido programado</h2>
+    <h2>Modo automático por la finca</h2>
+    <svg class="mapa" id="mapa" viewBox="0 0 100 100" role="img" aria-label="Mapa de la finca"></svg>
+    <p class="mono" id="posTxt">Posición: —</p>
+    <label class="check"><input type="checkbox" id="esperarOrden"> Esperar mi orden en cada punto (si no, espera <span id="espTxt">1</span> s y sigue)</label>
+    <div class="fila"><button class="b go" id="bTour">▶ Recorrido completo</button><button class="b" id="bCero">⟲ Desde cero</button></div>
+    <div class="fila" style="margin-top:8px"><button class="b go" id="bSig" disabled>⏭ Siguiente punto</button><button class="b" id="bPuesto">Volver al puesto</button></div>
+    <p style="margin:10px 0 0"><small>Ir directo a un punto (solo por los caminos, sin pasar por los cultivos):</small></p>
+    <div class="puntos" id="puntos"></div>
+    <div class="fila" style="margin-top:10px"><select id="posSel" aria-label="Punto donde está el robot"></select><button class="b" id="bPos">El robot está aquí</button></div>
+    <p><small>El robot no mide su posición: calcula cada tramo con la calibración y supone que llegó. Si lo detienes en el camino o lo manejas a mano, llévalo a un punto (por ejemplo, su puesto) y pulsa «El robot está aquí».</small></p>
+  </section>
+
+  <section>
+    <h2>Calibración del modo automático</h2>
+    <p class="mono" id="calTxt">Sin calibrar</p>
+    <label for="velAuto">Velocidad del modo automático (%)</label>
+    <input type="number" id="velAuto" min="20" max="100" step="5" value="60">
+    <div class="fila" style="margin-top:8px"><button class="b" id="bCalAv">1. Avanzar 10 s</button><input type="number" id="medCm" placeholder="cm avanzados" inputmode="decimal"><input type="number" id="medDes" placeholder="desvío (cm, + izq.)" inputmode="decimal"></div>
+    <div class="fila" style="margin-top:8px"><button class="b" id="bCalGi">2. Girar 10 s</button><input type="number" id="medGr" placeholder="grados medidos" inputmode="decimal"></div>
+    <div class="fila" style="margin-top:8px"><button class="b go" id="bCalOk">Guardar calibración</button></div>
+    <p><small>Hazla en un camino de la finca, con la batería cargada. Pon el robot sobre una marca, pulsa «Avanzar 10 s» y mide con la cinta cuántos centímetros avanzó y cuánto se desvió de la línea recta (positivo si se fue a la izquierda; con eso se ajusta la potencia de cada motor: repite esta prueba hasta que el desvío sea menor de 2 cm); luego «Girar 10 s» y mide cuántos grados giró. Con eso la Raspberry Pi calcula cuánto tiempo necesita cada tramo.</small></p>
+  </section>
+
+  <section>
+    <h2>Recorrido programado por tramos</h2>
     <div class="fila"><select id="lista" aria-label="Recorridos guardados"></select><button class="b" id="bCargar">Abrir</button></div>
     <table style="margin-top:8px"><thead><tr><th></th><th>Tramo</th><th>Vel. %</th><th>Dur. s</th><th></th></tr></thead><tbody id="tramos"></tbody></table>
     <p class="mono" id="total"></p>
@@ -152,9 +184,12 @@ function pintar(d) {
   barra($('bA'), d.izq); barra($('bB'), d.der); $('vA').textContent = d.izq; $('vB').textContent = d.der; $('tmo').textContent = d.timeout_ms;
   const av = $('aviso'); let txt = '';
   if (d.modo.startsWith('DETENIDO')) txt = 'El vehículo se detuvo porque dejaron de llegar órdenes. Vuelve a pulsar una flecha para continuar.';
+  else if (d.modo === 'ESPERANDO ORDEN') txt = `El robot llegó a ${nombre(d.auto.posicion)} y espera tu orden: pulsa «Siguiente punto» (${d.auto.plan && d.auto.plan.destino ? nombre(d.auto.plan.destino) : 'fin del recorrido'}) o elige otro punto.`;
+  else if (d.auto && d.auto.plan) txt = `${d.auto.plan.nombre}: ${d.auto.plan.ruta.join(' → ')} · ahora hacia ${d.auto.plan.hacia || '—'}.` + (d.tienes_control ? '' : ' Lo maneja otro dispositivo.');
   else if (d.recorrido) txt = `Recorrido «${d.recorrido.nombre}»: tramo ${d.recorrido.tramo} de ${d.recorrido.total} (${TIPOS[d.recorrido.tipo]}), faltan ${d.recorrido.restante_s.toFixed(1)} s.` + (d.tienes_control ? '' : ' Lo maneja otro dispositivo.');
   av.textContent = txt; av.classList.toggle('show', !!txt);
   $('info').textContent = `PWM ${d.pwm} · versión ${d.version}`;
+  pintarAuto(d);
   const i = d.recorrido && d.tienes_control ? d.recorrido.tramo - 1 : -1;
   document.querySelectorAll('#tramos tr').forEach((tr, k) => tr.classList.toggle('cur', k === i));
 }
@@ -165,8 +200,64 @@ async function consultar() {
 }
 setInterval(consultar, 300); consultar();
 // latido mientras corre un recorrido iniciado desde este dispositivo
-function latir() { if (est && est.recorrido && est.tienes_control) api('/api/latido', {}).then(d => { if (!d.recorrido) pintar(d); }).catch(() => { }); }
+function latir() { if (est && est.tienes_control && (est.modo === 'RECORRIDO PROGRAMADO' || est.modo === 'AUTOMÁTICO')) api('/api/latido', {}).then(d => { if (!d.recorrido) pintar(d); }).catch(() => { }); }
 setInterval(latir, 100);
+
+/* ---------- modo automático ---------- */
+let mapa = null;
+const nombre = id => id && mapa && mapa.puntos[id] ? `${id} (${mapa.puntos[id].nombre})` : (id || 'desconocida');
+async function cargarMapa() {
+  mapa = await (await fetch('/api/mapa', { cache: 'no-store' })).json();
+  const ps = Object.entries(mapa.puntos);
+  $('puntos').innerHTML = ps.filter(([, p]) => p.tipo !== 'cruce').map(([id, p]) => `<button class="b" data-p="${id}">${id}<small>${p.nombre}</small></button>`).join('');
+  $('posSel').innerHTML = ps.map(([id, p]) => `<option value="${id}">${id} · ${p.nombre}</option>`).join('');
+  $('puntos').querySelectorAll('button').forEach(b => b.addEventListener('click', () => auto('/api/ir', { destino: b.dataset.p })));
+  dibujarMapa(est);
+}
+function dibujarMapa(d) {
+  if (!mapa) return;
+  const P = Object.values(mapa.puntos), xs = P.map(p => p.x).concat(mapa.lotes.flatMap(l => [l.x0, l.x1])), ys = P.map(p => p.y).concat(mapa.lotes.flatMap(l => [l.y0, l.y1]));
+  const x0 = Math.min(...xs) - 60, x1 = Math.max(...xs) + 60, y0 = Math.min(...ys) - 60, y1 = Math.max(...ys) + 60;
+  const svg = $('mapa'); svg.setAttribute('viewBox', `${x0} ${-y1} ${x1 - x0} ${y1 - y0}`);
+  const C = { cafe: '#2f6b2a', platano: '#4c8f2f', maiz: '#b8a23a', huerta: '#6d8f3a' }, k = (x1 - x0) / 100;
+  let h = mapa.lotes.map(l => `<rect x="${l.x0}" y="${-l.y1}" width="${l.x1 - l.x0}" height="${l.y1 - l.y0}" fill="${C[l.cultivo] || '#3e7a30'}" rx="${k}"/><text x="${(l.x0 + l.x1) / 2}" y="${-(l.y0 + l.y1) / 2}" font-size="${3.2 * k}" fill="#fff" text-anchor="middle">${l.nombre}</text>`).join('');
+  h += mapa.caminos.map(([a, b]) => { const A = mapa.puntos[a], B = mapa.puntos[b]; return `<line x1="${A.x}" y1="${-A.y}" x2="${B.x}" y2="${-B.y}" stroke="#c9b28a" stroke-width="${9 * k}" stroke-linecap="round"/>`; }).join('');
+  const plan = d && d.auto && d.auto.plan;
+  if (plan) h += `<polyline points="${plan.ruta.map(id => `${mapa.puntos[id].x},${-mapa.puntos[id].y}`).join(' ')}" fill="none" stroke="#2d4fb8" stroke-width="${1.6 * k}" stroke-dasharray="${3 * k} ${2 * k}"/>`;
+  h += Object.entries(mapa.puntos).map(([id, p]) => p.tipo === 'cruce' ? `<circle cx="${p.x}" cy="${-p.y}" r="${1.4 * k}" fill="#8a7650"/>` :
+    `<circle cx="${p.x}" cy="${-p.y}" r="${3 * k}" fill="${p.tipo === 'puesto' ? '#1f9a6c' : p.tipo === 'almacen' ? '#c8261d' : '#f2c230'}" stroke="#fff" stroke-width="${.6 * k}"/><text x="${p.x}" y="${-p.y - 4.4 * k}" font-size="${3.6 * k}" font-weight="700" fill="#fff" text-anchor="middle">${id === 'ALMACEN' ? 'Almacén' : id === 'PUESTO' ? 'Puesto' : id}</text>`).join('');
+  const pos = d && d.auto && d.auto.posicion;
+  if (pos) { const p = mapa.puntos[pos], r = (d.auto.rumbo || 0) * Math.PI / 180, L = 6 * k;
+    h += `<circle cx="${p.x}" cy="${-p.y}" r="${4.5 * k}" fill="none" stroke="#fff" stroke-width="${.8 * k}"/><line x1="${p.x}" y1="${-p.y}" x2="${p.x + Math.cos(r) * L}" y2="${-p.y - Math.sin(r) * L}" stroke="#fff" stroke-width="${1.2 * k}"/>`; }
+  svg.innerHTML = h;
+}
+let firmaMapa = '';
+function pintarAuto(d) {
+  if (!d.auto) return;
+  const a = d.auto, marcha = d.modo === 'AUTOMÁTICO' || d.modo === 'RECORRIDO PROGRAMADO';
+  $('posTxt').textContent = a.posicion ? `Posición: ${nombre(a.posicion)} · rumbo ${Math.round(a.rumbo)}° · próximo del recorrido: ${a.siguiente}` : 'Posición: desconocida (indica dónde está el robot)';
+  $('espTxt').textContent = String(a.espera_s).replace('.', ',');
+  $('calTxt').textContent = a.calibrado ? `Avance ${a.cm_s} cm/s · giro ${a.grados_s} °/s a ${a.vel_auto} % · factores ${a.factor_izq} / ${a.factor_der}` : 'Sin calibrar: haz las dos pruebas de abajo antes de usar el modo automático.';
+  $('bSig').disabled = d.modo !== 'ESPERANDO ORDEN';
+  ['bTour', 'bCero', 'bPuesto'].forEach(id => $(id).disabled = marcha || !a.posicion || !a.calibrado);
+  $('puntos').querySelectorAll('button').forEach(b => { b.disabled = marcha || !a.posicion || !a.calibrado || b.dataset.p === a.posicion; b.classList.toggle('aqui', b.dataset.p === a.posicion); });
+  const f = JSON.stringify([a.posicion, a.rumbo, a.plan && a.plan.ruta]);
+  if (f !== firmaMapa) { firmaMapa = f; dibujarMapa(d); }
+}
+async function auto(path, body) {
+  soltar(false);
+  try { pintar(await api(path, Object.assign({ esperar_orden: $('esperarOrden').checked }, body))); latir(); } catch (e) { toast(e.message); }
+}
+$('bTour').addEventListener('click', () => auto('/api/recorrido', {}));
+$('bCero').addEventListener('click', () => auto('/api/recorrido', { desde_cero: true }));
+$('bSig').addEventListener('click', () => auto('/api/siguiente', {}));
+$('bPuesto').addEventListener('click', () => auto('/api/ir', { destino: mapa ? mapa.inicio : 'PUESTO' }));
+$('bPos').addEventListener('click', () => api('/api/posicion', { punto: $('posSel').value }).then(d => { pintar(d); toast('Posición indicada.'); }).catch(e => toast(e.message)));
+$('bCalAv').addEventListener('click', () => api('/api/calibracion', { vel_auto: +$('velAuto').value }).then(() => auto('/api/calibrar', { prueba: 'avance' })).catch(e => toast(e.message)));
+$('bCalGi').addEventListener('click', () => api('/api/calibracion', { vel_auto: +$('velAuto').value }).then(() => auto('/api/calibrar', { prueba: 'giro' })).catch(e => toast(e.message)));
+$('bCalOk').addEventListener('click', () => { const b = { vel_auto: +$('velAuto').value }; if (+$('medCm').value) b.medido_cm = +$('medCm').value; if (+$('medGr').value) b.medido_grados = +$('medGr').value; if ($('medDes').value !== '') b.medido_desvio_cm = +$('medDes').value;
+  api('/api/calibracion', b).then(d => { pintar(d); toast('Calibración guardada.'); }).catch(e => toast(e.message)); });
+cargarMapa().catch(() => toast('No se pudo leer el mapa de la finca.'));
 
 /* ---------- recorridos ---------- */
 let guardados = {};

@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&family=Saira+Condensed:wght@600;700;800&display=swap">
-<link rel="stylesheet" href="css/styles.css?v=31">
+<link rel="stylesheet" href="css/styles.css?v=54">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 40 24%22%3E%3Crect x=%222%22 y=%229%22 width=%2236%22 height=%2212%22 rx=%226%22 fill=%22none%22 stroke=%22%231f9a6c%22 stroke-width=%223%22/%3E%3Crect x=%2212%22 y=%222%22 width=%2216%22 height=%227%22 rx=%221.5%22 fill=%22%231f9a6c%22/%3E%3C/svg%3E">
 <script>try{var t=localStorage.getItem('ugv-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
 </head>
@@ -47,6 +47,8 @@
         </div>
         <div class="hud-row"><span class="lbl">Raspberry Pi</span><span class="state-badge" id="hState">ESPERA</span></div>
         <div class="hud-row"><span class="lbl">Wi-Fi celular</span><span class="mono" id="hWifi">conectado</span></div>
+        <div class="hud-row"><span class="lbl">Cree estar en</span><span class="mono" id="hPos">Puesto</span></div>
+        <div class="hud-row"><span class="lbl">Cultivos tocados</span><span class="mono" id="hCrops">0</span></div>
         <div class="hud-row hud-opt"><span class="lbl">Superficie</span><span class="mono" id="hSoil">–</span></div>
         <div class="hud-row hud-opt"><span class="lbl">Masa total</span><span class="mono" id="hMass">–</span></div>
         <div class="hud-row" id="hErrRow" hidden><span class="lbl">Tramo</span><span class="mono" id="hErr">—</span></div>
@@ -57,7 +59,7 @@
           <button data-view="orbit" aria-pressed="true">Órbita</button>
           <button data-view="follow" aria-pressed="false">Seguir</button>
           <button data-view="top" aria-pressed="false">Cenital</button>
-          <button data-view="field" aria-pressed="false">Zona</button>
+          <button data-view="field" aria-pressed="false">Finca</button>
         </div>
         <div class="seg" role="group" aria-label="Capas">
           <button id="tWires" aria-pressed="true">Cables</button>
@@ -82,7 +84,7 @@
     <aside class="panel">
       <div class="seg wide" role="group" aria-label="Modo de manejo">
         <button data-mode="remoto" aria-pressed="true">Control remoto</button>
-        <button data-mode="recorrido" aria-pressed="false">Recorrido programado</button>
+        <button data-mode="auto" aria-pressed="false">Automático</button>
       </div>
       <div class="joy" id="joy" role="application" aria-label="Joystick del celular: arrastra para mover el robot"><div class="knob" id="knob"></div></div>
       <div class="card">
@@ -100,17 +102,34 @@
       </div>
       <button class="btn estop" id="bBatt" aria-pressed="false">Desconectar batería (corte total)</button>
       <div class="card">
-        <div class="card-h"><h2>Recorrido programado</h2><small id="wpCount">tramos por tiempo</small></div>
-        <label class="lbl-row" for="surface">Superficie de la prueba</label>
-        <select id="surface"><option value="firme">Superficie firme</option><option value="tierra">Tierra</option><option value="arena">Arena</option><option value="rampa">Rampa de tierra</option></select>
+        <div class="card-h"><h2>Modo automático por la finca</h2><small id="autoSub">por los caminos</small></div>
+        <p class="muted small mono" id="autoTxt">—</p>
+        <label class="check"><input type="checkbox" id="esperarOrden"> Esperar mi orden en cada punto (si no, espera 1 s y sigue)</label>
+        <div class="row"><button class="btn small go" id="bTour">Recorrido completo</button><button class="btn small" id="bCero">Desde cero</button></div>
+        <div class="row"><button class="btn small go" id="bSig" disabled>Siguiente punto</button><button class="btn small" id="bVolver">Volver al puesto</button></div>
+        <p class="muted small">Ir directo a un punto (solo por los caminos):</p>
+        <div class="ptgrid" id="ptGrid"></div>
+        <div class="row"><select id="posSel" aria-label="Punto donde está el robot"></select><button class="btn small" id="bPos">El robot está aquí</button></div>
+        <p class="muted small">Es el mismo programa de la Raspberry Pi: planea la ruta más corta por los caminos del mapa (raspberry/finca.json), gira sobre su eje hacia cada punto, avanza en línea recta el tiempo que da la calibración y espera en cada destino. No mide su posición: si se desvía, lo verás en «Cultivos tocados».</p>
+      </div>
+      <div class="card">
+        <div class="card-h"><h2>Calibración</h2><small>config.json</small></div>
+        <p class="muted small mono" id="calTxt">—</p>
+        <div class="row"><button class="btn small" id="bCal">Calibrar en el camino (10 s avance y 10 s giro)</button></div>
+        <p class="muted small">En el prototipo se hace con la cinta métrica desde la página del celular. Si cambias la carga, el deslizamiento o la diferencia entre motores, vuelve a calibrar.</p>
+      </div>
+      <div class="card">
+        <div class="card-h"><h2>Recorrido por tramos</h2><small id="wpCount">patio de pruebas</small></div>
+        <label class="lbl-row" for="surface">Lugar</label>
+        <select id="surface"><option value="finca">Finca · puesto del robot</option><option value="firme">Patio · superficie firme</option><option value="tierra">Patio · tierra</option><option value="arena">Patio · arena</option><option value="rampa">Patio · rampa de tierra</option></select>
         <div class="tbl-wrap"><table class="tramos"><thead><tr><th></th><th>Tramo</th><th>Vel. %</th><th>Dur. s</th><th></th></tr></thead><tbody id="tramos"></tbody></table></div>
         <p class="muted small mono" id="tramosTot"></p>
         <div class="row"><button class="btn small go" id="bRun">Ejecutar recorrido</button><button class="btn small" id="bAddT">+ Tramo</button><button class="btn small" id="bAbc">Recorrido A-B-C</button></div>
         <div class="row"><button class="btn small" id="bJson">Descargar para la Raspberry Pi (JSON)</button><button class="btn small" id="bImport">Importar JSON</button><input type="file" id="fImport" accept="application/json,.json" hidden></div>
-        <p class="muted small">Igual que en el prototipo: la Raspberry Pi cumple cada tramo durante su tiempo, en línea recta o girando sobre su eje, sin medir la posición. La línea azul es el recorrido previsto en superficie firme; al terminar se mide la distancia entre el punto final previsto y el alcanzado (prueba P8).</p>
+        <p class="muted small">Para las pruebas del informe en el patio: la Raspberry Pi cumple cada tramo durante su tiempo, sin medir la posición. La línea azul es lo previsto en superficie firme; al terminar se mide la distancia entre el punto final previsto y el alcanzado (prueba P8).</p>
       </div>
       <div class="row">
-        <button class="btn go" id="bInicio" style="flex:1.4 1 0">Robot a la marca A</button>
+        <button class="btn go" id="bInicio" style="flex:1.4 1 0">Robot a su puesto</button>
         <button class="btn" id="bBorrar">Borrar ruta</button>
       </div>
       <div class="card">
@@ -154,7 +173,7 @@
         <label class="lbl-row" for="mism">Diferencia real entre los motores <b id="mismLbl">2 %</b></label>
         <input type="range" id="mism" min="0" max="6" step="0.5" value="2">
         <label class="lbl-row" for="factor">Factor de ajuste del motor B (factor_der de config.json) <b id="factorLbl">1,00</b></label>
-        <input type="range" id="factor" min="90" max="100" value="100">
+        <input type="range" id="factor" min="90" max="100" step="0.1" value="100">
         <label class="lbl-row" for="simspeed">Velocidad de la simulación</label>
         <select id="simspeed"><option value="1">Tiempo real</option><option value="2">× 2</option><option value="4">× 4</option><option value="8">× 8</option></select>
         <label class="lbl-row" for="tscale">Velocidad de descarga de la batería</label>
@@ -233,9 +252,9 @@
       </div>
       <div class="card"><h2>Qué muestra este gemelo digital</h2>
         <ul class="steps">
-          <li><b>Zona de pruebas:</b> superficie firme, tierra, arena y una rampa de tierra, con las marcas A, B y C de la prueba P8 y una mesa para la prueba en banco. No hay finca ni cultivos: así es el alcance del informe.</li>
+          <li><b>Finca:</b> cafetal, platanera, maizal y huerta, caminos de tierra, almacén de la cosecha, puesto del robot, casa, árboles y colinas, con un patio de pruebas (firme, tierra, arena y rampa). El mapa es el mismo <code>raspberry/finca.json</code> que usa el programa real.</li>
+          <li><b>Modo automático:</b> recorrido completo por todos los puntos con 1 s de espera, desde cero, esperar tu orden y siguiente punto, o ir directo a un punto. Solo circula por los caminos, en línea recta, girando en los cruces y retrocediendo en vez de dar media vuelta. No mide su posición: usa la calibración, por eso hay que calibrar en el camino.</li>
           <li><b>Control remoto:</b> el joystick hace de celular. Si cortas el Wi-Fi mientras te mueves, el programa de la Raspberry Pi detiene los motores al pasar el tiempo de parada.</li>
-          <li><b>Recorrido programado:</b> lista de tramos por tiempo y velocidad (avanzar, retroceder, girar sobre su eje y pausa), en línea recta y en lazo abierto, igual que el programa real. El mismo archivo JSON sirve en la Raspberry Pi.</li>
           <li><b>Limitación declarada:</b> si se bloquea el programa, los pines quedan en su último estado; solo desconectar la batería lo detiene.</li>
           <li><b>Circuito:</b> el esquema refleja el diagrama final. Si conectas un pin mal, la revisión eléctrica lo marca y el simulador deja de mover ese motor.</li>
         </ul></div>
@@ -250,7 +269,8 @@
           <tr><td>Superficies</td><td>rodadura 0,05 firme · 0,10 tierra · 0,17 arena</td><td>Supuestos de la simulación</td></tr>
           <tr><td>Deslizamiento χ</td><td>1,6 en firme (ajustable); × 1,15 tierra y × 1,35 arena</td><td>Supuesto; las pruebas lo mostrarán</td></tr>
           <tr><td>Diferencia entre motores</td><td>2 % (ajustable)</td><td>Supuesto</td></tr>
-          <tr><td>Rampa</td><td>8°, 2,5 m</td><td>Valor de ejemplo; el informe deja la pendiente «____»</td></tr>
+          <tr><td>Rampa</td><td>8°, 2,4 m</td><td>Valor de ejemplo; el informe deja la pendiente «____»</td></tr>
+          <tr><td>Finca</td><td>caminos de 1,6 m; lotes a 80 cm del centro del camino</td><td>Mapa de ejemplo (raspberry/finca.json); medir la finca real</td></tr>
           <tr><td>Parada sin órdenes</td><td>800 ms (ajustable)</td><td>Valor por defecto del programa; el informe lo deja «____ ms»</td></tr>
         </tbody></table></div></div>
       <div class="card"><div class="card-h"><h2>Lista de materiales y presupuesto</h2><small>precios de referencia editables</small></div>
@@ -268,16 +288,18 @@
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-<script src="vendor/three.min.js?v=31"></script>
-<script src="vendor/OrbitControls.js?v=31"></script>
-<script src="vendor/RoomEnvironment.js?v=31"></script>
-<script src="js/data.js?v=31"></script>
-<script src="js/models.js?v=31"></script>
-<script src="js/state.js?v=31"></script>
-<script src="js/sim.js?v=31"></script>
-<script src="js/circuit.js?v=31"></script>
-<script src="js/catalog.js?v=31"></script>
-<script src="js/codepi.js?v=31"></script>
-<script src="js/app.js?v=31"></script>
+<script src="vendor/three.min.js?v=54"></script>
+<script src="vendor/OrbitControls.js?v=54"></script>
+<script src="vendor/RoomEnvironment.js?v=54"></script>
+<script src="js/data.js?v=54"></script>
+<script src="js/models.js?v=54"></script>
+<script src="js/state.js?v=54"></script>
+<script src="js/codepi.js?v=54"></script>
+<script src="js/auto.js?v=54"></script>
+<script src="js/finca3d.js?v=54"></script>
+<script src="js/sim.js?v=54"></script>
+<script src="js/circuit.js?v=54"></script>
+<script src="js/catalog.js?v=54"></script>
+<script src="js/app.js?v=54"></script>
 </body>
 </html>

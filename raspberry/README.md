@@ -4,7 +4,8 @@ Control real del prototipo: la **Raspberry Pi 3 Model B controla directamente el
 
 | Archivo | Qué hace |
 | --- | --- |
-| `ugv.py` | Servidor web, control de motores con PWM por hardware, recorridos por tramos, parada sin órdenes y registro CSV |
+| `ugv.py` | Servidor web, control de motores con PWM por hardware, modo automático por los puntos de la finca, recorridos por tramos, parada sin órdenes y registro CSV |
+| `finca.json` | Mapa de la finca: puntos (puesto, A, B, C, D, almacén y cruces), caminos y lotes de cultivo |
 | `web/index.html` | Página de control que se abre en el celular (flechas, velocidad, recorridos, datos de la prueba y registro) |
 | `config.json` | Puerto, frecuencia de la PWM, tiempo de parada sin órdenes y factor de ajuste de cada motor |
 | `ugv.service` | Servicio de systemd: arranca el programa al encender |
@@ -48,7 +49,21 @@ Baterías 7,4 V (+) → bornera 12V del L298N y entrada del DC-DC. OUT1/OUT2 →
 ## Uso
 
 - **Control remoto:** mantén pulsada una flecha; al soltarla se detiene. **ALTO** y **PARAR** detienen en cualquier momento, desde cualquier celular.
-- **Recorrido programado:** lista de tramos (avanzar, retroceder, girar a la izquierda o a la derecha sobre su eje, pausa), cada uno con velocidad (%) y duración (s). Se ejecuta en **lazo abierto**: cumple los tiempos sin medir la posición. La página debe quedar abierta mientras corre.
+- **Modo automático por la finca:** el robot va de punto en punto **solo por los caminos** de `finca.json`, en línea recta, girando sobre su eje en los cruces y retrocediendo cuando el camino vuelve hacia atrás (así no da medias vueltas). Botones:
+  - **Recorrido completo:** pasa por todos los puntos (A, B, C, D y almacén) y vuelve al puesto; en cada punto espera 1 s (`espera_s`) y sigue. Si se detuvo a mitad, continúa desde el punto que faltaba.
+  - **Desde cero:** empieza otra vez el recorrido por el primer punto.
+  - **Esperar mi orden en cada punto:** al llegar se queda quieto hasta que pulses **Siguiente punto**, o hasta que elijas otro punto.
+  - **Ir directo a un punto:** calcula el camino más corto (sin atravesar lotes) desde donde está.
+  - **Volver al puesto** y **El robot está aquí** (para indicarle dónde lo pusiste).
+- **Cómo sabe dónde está:** no lo mide. Al encender supone que está en su puesto mirando al norte (`inicio` y `rumbo_inicial` del mapa) y después lleva la cuenta de cada tramo. Si lo detienes en el camino o lo manejas con las flechas, la posición queda «desconocida»: llévalo a un punto y pulsa **El robot está aquí**.
+- **Calibración (obligatoria antes del modo automático):** en un camino de la finca y con la batería cargada:
+  1. **Avanzar 10 s:** mide con la cinta cuántos centímetros avanzó y cuánto se desvió de la línea recta (positivo si se fue a la izquierda). Con el desvío el programa ajusta la potencia de cada motor; repite la prueba hasta que el desvío sea menor de 2 cm.
+  2. **Girar 10 s:** mide cuántos grados giró.
+  3. **Guardar calibración:** quedan `cm_s`, `grados_s`, `factor_izq` y `factor_der` en `config.json`.
+
+  Vuelve a calibrar si cambia la batería, la carga o el suelo: en lazo abierto, un error pequeño por segundo se acumula en un recorrido largo.
+- **Tu finca:** mide los puntos y los caminos y escríbelos en `/opt/ugv/finca.json` (en centímetros, `y` hacia el norte). Al arrancar, el programa comprueba que ningún camino pase a menos de `margen_cm` de un lote; si pasa, no arranca y dice cuál.
+- **Recorrido programado por tramos:** lista de tramos (avanzar, retroceder, girar a la izquierda o a la derecha sobre su eje, pausa), cada uno con velocidad (%) y duración (s). Se ejecuta en **lazo abierto**: cumple los tiempos sin medir la posición. La página debe quedar abierta mientras corre.
 - **Parada sin órdenes:** si dejan de llegar órdenes del celular durante `timeout_ms` (800 ms por defecto), el programa detiene los motores y queda en «DETENIDO POR SEGURIDAD».
 - **Datos de la prueba:** elige el código (P1–P10), la superficie y la carga antes de cada ensayo; quedan en cada línea del registro.
 - **Registro:** `/opt/ugv/registros/registro-AAAA-MM-DD.csv` (también se descarga desde la página).
@@ -68,7 +83,7 @@ En cualquier computador con Python 3:
 
 ```bash
 python3 raspberry/ugv.py --simular            # abre http://localhost:8080
-python3 -m unittest raspberry/test_ugv.py     # 12 pruebas del servidor real con pines simulados
+python3 -m unittest raspberry/test_ugv.py     # 22 pruebas del servidor real con pines simulados
 ```
 
 ## Limitación de seguridad (declarada en el informe)
@@ -88,6 +103,13 @@ La parada sin órdenes vive en este mismo programa. **Si el programa o el sistem
 | `DELETE /api/recorridos/<nombre>` | — | `{"ok": true}` |
 | `POST /api/ejecutar` | `{"cliente", "nombre"}` o `{"cliente", "nombre", "tramos"}` | estado |
 | `POST /api/prueba` | `{"codigo", "superficie", "carga_kg"}` | estado |
+| `GET /api/mapa` | — | mapa de la finca (`finca.json`) |
+| `POST /api/ir` | `{"cliente", "destino", "esperar_orden"}` | estado (camino más corto por los caminos) |
+| `POST /api/recorrido` | `{"cliente", "desde_cero", "esperar_orden"}` | estado (todos los puntos y vuelta al puesto) |
+| `POST /api/siguiente` | `{"cliente"}` | estado (sigue cuando espera la orden) |
+| `POST /api/posicion` | `{"cliente", "punto", "rumbo"}` | estado (indica dónde está el robot) |
+| `POST /api/calibrar` | `{"cliente", "prueba": "avance" o "giro"}` | estado (corre la prueba de 10 s) |
+| `POST /api/calibracion` | `{"medido_cm", "medido_grados", "medido_desvio_cm", "vel_auto"}` | estado (guarda la calibración) |
 | `GET /api/registro?n=30` · `GET /registro.csv` | — | últimas líneas · archivo del día |
 
 ## Si algo no funciona

@@ -49,10 +49,10 @@ toggle('tWires', on => Sim.setWires(on)); toggle('tOpen', on => Sim.setOpen(on))
 
 // modo
 document.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => {
-  if (b.dataset.mode === 'recorrido') { if (Sim.runRoute()) UGV.emit('toast', 'Recorrido iniciado: la Raspberry Pi cumple cada tramo por tiempo.'); }
+  if (b.dataset.mode === 'auto') { Sim.setMode('auto'); $('autoTxt').scrollIntoView({ block: 'center', behavior: 'smooth' }); }
   else Sim.setMode('remoto');
 }));
-UGV.on('mode', m => { document.querySelectorAll('[data-mode]').forEach(b => b.setAttribute('aria-pressed', b.dataset.mode === m)); });
+UGV.on('mode', m => { document.querySelectorAll('[data-mode]').forEach(b => b.setAttribute('aria-pressed', b.dataset.mode === (m === 'recorrido' ? 'auto' : m))); });
 
 // joystick (hace de celular)
 const joy = $('joy'), knob = $('knob'); let jid = null, jx = 0, jy = 0;
@@ -67,12 +67,12 @@ joy.addEventListener('pointerup', jend); joy.addEventListener('pointercancel', j
 $('vmax').addEventListener('input', e => { Sim.st.vmax = e.target.value / 100; $('vmaxLbl').textContent = e.target.value + ' %'; });
 $('slip').addEventListener('input', e => { Sim.st.slip = e.target.value / 100; $('slipLbl').textContent = 'χ = ' + fmt(Sim.st.slip); Sim.planRoute(); });
 $('mism').addEventListener('input', e => { Sim.st.mismatch = e.target.value / 100; $('mismLbl').textContent = String(e.target.value).replace('.', ',') + ' %'; });
-$('factor').addEventListener('input', e => { Sim.st.factorDer = e.target.value / 100; $('factorLbl').textContent = fmt(Sim.st.factorDer, 2); });
+$('factor').addEventListener('input', e => { Sim.st.factorDer = e.target.value / 100; $('factorLbl').textContent = fmt(Sim.st.factorDer, 3); });
 $('timeout').addEventListener('change', e => { Sim.st.timeoutMs = +e.target.value; });
 $('tscale').addEventListener('change', e => { Sim.st.timeScale = +e.target.value; });
 $('simspeed').addEventListener('change', e => { Sim.st.simSpeed = +e.target.value; });
 $('bReset').addEventListener('click', () => Sim.cmd('reset'));
-$('bInicio').addEventListener('click', () => Sim.cmd('reset'));
+$('bInicio').addEventListener('click', () => { $('surface').value = 'finca'; Sim.toMark('finca'); UGV.emit('toast', 'Robot en su puesto, mirando al norte, como al encender la Raspberry Pi.'); });
 $('bRecharge').addEventListener('click', () => { Sim.st.soc = 1; UGV.emit('toast', 'Batería cargada: 8,4 V (4,2 V por celda).'); });
 $('bParar').addEventListener('click', () => { jx = jy = 0; setKnob(); Sim.cmd('stop'); if (Sim.st.wifiCut) UGV.emit('toast', 'Sin Wi-Fi la orden «parar» no llega: la Raspberry Pi se detendrá sola al pasar el tiempo de parada.'); });
 $('bBorrar').addEventListener('click', () => { Sim.cmd('clear'); UGV.emit('toast', 'Ruta borrada.'); });
@@ -134,13 +134,41 @@ UGV.on('route', pintarTramos); pintarTramos(Sim.route);
 $('bAddT').addEventListener('click', () => { fila({ tipo: 'avanzar', velocidad: 60, duracion: 2 }); aplicar(); });
 $('bAbc').addEventListener('click', () => { Sim.setRoute(Sim.defaultRoute()); UGV.emit('toast', 'Recorrido A-B-C: 200 cm hacia B, giro de 90° a la derecha y 150 cm hacia C (tiempos calculados para superficie firme).'); });
 $('bRun').addEventListener('click', () => { aplicar(); if (Sim.runRoute()) UGV.emit('toast', 'Recorrido iniciado: la Raspberry Pi cumple cada tramo por tiempo.'); });
-$('surface').addEventListener('change', e => { Sim.toMark(e.target.value); $('routeSec').textContent = e.target.selectedOptions[0].textContent.toLowerCase(); });
+$('surface').addEventListener('change', e => { Sim.toMark(e.target.value); });
 $('bJson').addEventListener('click', () => download('recorrido-' + $('surface').value + '.json', JSON.stringify({ nombre: 'A-B-C ' + $('surface').value, tramos: Sim.route }, null, 2), 'application/json;charset=utf-8'));
 $('bImport').addEventListener('click', () => $('fImport').click());
 $('fImport').addEventListener('change', async e => { const f = e.target.files[0]; if (!f) return;
   try { const d = JSON.parse(await f.text()), t = Array.isArray(d) ? d : d.tramos; if (!Array.isArray(t) || !t.every(x => Sim.TIPOS[x.tipo])) throw 0; Sim.setRoute(t); UGV.emit('toast', 'Recorrido importado.'); }
   catch (_) { UGV.emit('toast', 'El archivo no es un recorrido válido.'); } e.target.value = ''; });
 UGV.on('routeEnd', () => { if (Sim.st.mode === 'recorrido') Sim.setMode('remoto'); });
+
+/* ---------- Modo automático por la finca ---------- */
+const F = Sim.FINCA, ptName = id => id ? (id === 'ALMACEN' ? 'Almacén' : id === 'PUESTO' ? 'Puesto' : id) : 'desconocido';
+const paradas = Object.entries(F.puntos).filter(([, q]) => q.tipo !== 'cruce');
+$('ptGrid').innerHTML = paradas.map(([id, q]) => `<button class="btn small" data-p="${id}">${ptName(id)}<small>${esc(q.nombre)}</small></button>`).join('');
+$('ptGrid').querySelectorAll('button').forEach(b => b.addEventListener('click', () => { Sim.auto.ir(b.dataset.p); }));
+$('posSel').innerHTML = Object.entries(F.puntos).map(([id, q]) => `<option value="${id}">${id} · ${esc(q.nombre)}</option>`).join('');
+$('esperarOrden').addEventListener('change', e => { Sim.st.esperarOrden = e.target.checked; });
+$('bTour').addEventListener('click', () => Sim.auto.recorrido(false));
+$('bCero').addEventListener('click', () => Sim.auto.recorrido(true));
+$('bSig').addEventListener('click', () => Sim.auto.siguiente());
+$('bVolver').addEventListener('click', () => Sim.auto.ir(F.inicio));
+$('bPos').addEventListener('click', () => { if (Sim.auto.posicion($('posSel').value)) { $('surface').value = 'finca'; UGV.emit('toast', `Posición indicada: ${$('posSel').value}.`); } });
+$('bCal').addEventListener('click', () => Sim.auto.calibrar());
+const calTxt = c => { $('calTxt').textContent = c.cm_s ? `avance ${fmt(c.cm_s, 2)} cm/s · giro ${fmt(c.grados_s, 2)} °/s a ${c.vel_auto} % · espera ${fmt(c.espera_s, 0)} s` : 'sin calibrar'; };
+UGV.on('calib', calTxt); calTxt(Sim.st.cfg);
+const syncFactor = f => { $('factor').value = Math.round(f * 100); $('factorLbl').textContent = fmt(f, 3); }; UGV.on('factor', syncFactor); syncFactor(Sim.st.factorDer);
+function pintarAuto(t) {
+  const marcha = !!t.auto && t.state !== 'ESPERANDO ORDEN', ocupado = marcha || !!t.rec, sinPos = !t.pos;
+  $('autoTxt').textContent = t.state === 'ESPERANDO ORDEN' ? `En ${ptName(t.pos)}: esperando tu orden. «Siguiente punto» va a ${ptName(t.auto && t.auto.destino) || 'fin'}; o elige otro punto.`
+    : t.auto ? `${t.auto.nombre}: ${t.auto.nodos.map(ptName).join(' → ')} · ahora hacia ${ptName(t.auto.hacia)}`
+    : sinPos ? 'No se sabe dónde está el robot: indícalo con «El robot está aquí».' : `Listo en ${ptName(t.pos)} · próximo del recorrido: ${ptName(F.orden[t.tourI] || F.inicio)}`;
+  if (!t.auto && Sim.st.calSoc !== undefined && Math.abs(Sim.st.soc - Sim.st.calSoc) > .015) $('autoTxt').textContent += ' · La batería cambió desde la calibración: vuelve a calibrar para no salirse del camino.';
+  $('autoSub').textContent = t.auto ? (t.state === 'ESPERANDO ORDEN' ? 'esperando orden' : 'en marcha') : 'por los caminos';
+  $('bSig').disabled = t.state !== 'ESPERANDO ORDEN';
+  ['bTour', 'bCero', 'bVolver'].forEach(id => $(id).disabled = ocupado || sinPos);
+  $('ptGrid').querySelectorAll('button').forEach(b => { b.disabled = ocupado || sinPos || b.dataset.p === t.pos; b.classList.toggle('aqui', b.dataset.p === t.pos); });
+}
 
 /* ---------- Telemetría ---------- */
 $('pinsMini').innerHTML = UGV.SIGNALS.map(([p, , g, f]) => `<div class="pinst" id="pm-${p}"><span>${p}</span><small>GPIO ${g} · ${f}</small><b>LOW</b></div>`).join('');
@@ -150,7 +178,11 @@ UGV.on('telemetry', t => {
   $('hV').textContent = fmt(t.v); $('hW').textContent = Math.round(t.w * 57.2958);
   $('hBat').textContent = t.battery ? `${fmt(t.vbat, 2)} V · ${Math.round(t.soc * 100)} %` : 'desconectada';
   const bb = $('hBatBar'); bb.style.width = (t.battery ? t.soc * 100 : 0) + '%'; bb.dataset.lvl = t.soc < .15 ? 'low' : t.soc < .35 ? 'mid' : 'ok';
-  const sb = $('hState'); sb.textContent = t.state; sb.dataset.s = t.state.startsWith('DETENIDO') || t.state.startsWith('PROGRAMA') ? 'PARADA' : t.state.startsWith('RECORRIDO') ? 'AUTÓNOMO' : t.state.startsWith('CONTROL') ? 'MANUAL' : 'ESPERA';
+  const sb = $('hState'); sb.textContent = t.state; sb.dataset.s = t.state.startsWith('DETENIDO') || t.state.startsWith('PROGRAMA') ? 'PARADA' : t.state.startsWith('RECORRIDO') || t.state === 'AUTOMÁTICO' ? 'AUTÓNOMO' : t.state.startsWith('ESPERANDO') ? 'PAUSA' : t.state.startsWith('CONTROL') ? 'MANUAL' : 'ESPERA';
+  $('hPos').textContent = t.pos ? ptName(t.pos) : (t.auto ? 'en camino' : 'desconocido');
+  $('hCrops').textContent = t.crops; $('hCrops').style.color = t.crops ? 'var(--danger)' : '';
+  $('routeSec').textContent = t.soil;
+  pintarAuto(t);
   $('hWifi').textContent = t.wifiCut ? 'cortado' : 'conectado';
   $('hSoil').textContent = `${t.soil}${Math.abs(t.grade) > .02 ? ' · ' + Math.round(t.grade * 57.2958) + '°' : ''}`;
   $('hMass').textContent = `${fmt(t.mass, 2)} kg`;
@@ -172,29 +204,42 @@ UGV.on('telemetry', t => {
   drawChart(); drawRoute();
 });
 
-/* Mapa de la ruta */
+/* Mapa de la ruta: la finca con sus lotes y caminos, o el patio de pruebas */
 const rc = $('route'), rg = rc.getContext('2d');
 function drawRoute() {
   const r = rc.getBoundingClientRect(), dpr = Math.min(devicePixelRatio, 2);
   if (!r.width) return;
   if (rc.width !== Math.round(r.width * dpr) || rc.height !== Math.round(r.height * dpr)) { rc.width = Math.round(r.width * dpr); rc.height = Math.round(r.height * dpr); }
   const W = rc.width, H = rc.height; rg.clearRect(0, 0, W, H);
-  const st = Sim.st, pts = st.path.concat([[st.x, st.z]]), plan = st.plan ? st.plan.pts : [], m = Sim.marksFor(st.surface);
-  let x0 = st.x, x1 = st.x, z0 = st.z, z1 = st.z;
-  [m.A, m.B, m.C].concat(plan, pts.slice(-800)).forEach(([x, z]) => { x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); });
-  const pad = 60, cxw = (x0 + x1) / 2, czw = (z0 + z1) / 2, s = Math.min(W / (x1 - x0 + 2 * pad), H / (z1 - z0 + 2 * pad));
+  const st = Sim.st, LY = Sim.LY, pts = st.path.concat([[st.x, st.z]]), enFinca = st.z < LY.PATIO.z0 - 20 && !st.bench;
+  const box = enFinca ? { x0: LY.AREA.x0, x1: LY.AREA.x1, z0: LY.AREA.z0, z1: 600 } : LY.PATIO;
+  const pad = 30, cxw = (box.x0 + box.x1) / 2, czw = (box.z0 + box.z1) / 2, s = Math.min(W / (box.x1 - box.x0 + 2 * pad), H / (box.z1 - box.z0 + 2 * pad));
   const P = (x, z) => [W / 2 + (x - cxw) * s, H / 2 + (z - czw) * s];
   const rect = (q, fill) => { const [a, b] = P(q.x0, q.z0), [c, d] = P(q.x1, q.z1); rg.fillStyle = fill; rg.fillRect(a, b, c - a, d - b); };
-  rect(Sim.ZONES[0], 'rgba(150,150,150,.35)'); rect(Sim.ZONES[1], 'rgba(122,90,58,.45)'); rect(Sim.ZONES[2], 'rgba(216,192,138,.55)');
-  rect({ x0: Sim.RAMP.x0, x1: Sim.RAMP.x1, z0: Sim.RAMP.zEnd, z1: Sim.RAMP.zBase }, 'rgba(111,81,52,.5)');
-  const line = (arr, col, w, dash) => { if (arr.length < 2) return; rg.setLineDash(dash ? [5 * dpr, 4 * dpr] : []); rg.strokeStyle = col; rg.lineWidth = w * dpr; rg.lineJoin = 'round'; rg.beginPath(); arr.forEach(([x, z], i) => { const [a, b] = P(x, z); i ? rg.lineTo(a, b) : rg.moveTo(a, b); }); rg.stroke(); rg.setLineDash([]); };
-  line(plan, css('--w-bus'), 1.8, true);
-  line(st.bench ? [] : pts.slice(-1500), css('--mint'), 2.4, false);
-  rg.font = `600 ${10.5 * dpr}px "IBM Plex Sans", sans-serif`; rg.textAlign = 'center';
-  [['A', m.A], ['B', m.B]].concat(st.surface === 'rampa' ? [] : [['C', m.C]]).forEach(([k, [x, z]]) => { const [a, b] = P(x, z); rg.fillStyle = css('--w-5v'); rg.beginPath(); rg.arc(a, b, 4 * dpr, 0, 7); rg.fill(); rg.fillStyle = css('--fg'); rg.fillText(k, a, b - 8 * dpr); });
-  if (st.plan) { const [a, b] = P(...st.plan.end); rg.strokeStyle = css('--w-bus'); rg.lineWidth = 1.5 * dpr; rg.beginPath(); rg.arc(a, b, 6 * dpr, 0, 7); rg.stroke(); }
+  const line = (arr, col, w, dash) => { if (arr.length < 2) return; rg.setLineDash(dash ? [5 * dpr, 4 * dpr] : []); rg.strokeStyle = col; rg.lineWidth = w * dpr; rg.lineJoin = 'round'; rg.lineCap = 'round'; rg.beginPath(); arr.forEach(([x, z], i) => { const [a, b] = P(x, z); i ? rg.lineTo(a, b) : rg.moveTo(a, b); }); rg.stroke(); rg.setLineDash([]); };
+  rg.font = `600 ${10 * dpr}px "IBM Plex Sans", sans-serif`; rg.textAlign = 'center';
+  if (enFinca) {
+    rect(box, 'rgba(111,143,62,.35)');
+    LY.PATHS.forEach(q => line([[q.a.x, q.a.z], [q.b.x, q.b.z]], 'rgba(181,157,118,.9)', 2 * LY.PATH_HALF * s / dpr, false));
+    const C = { cafe: 'rgba(47,107,42,.85)', platano: 'rgba(79,154,53,.85)', maiz: 'rgba(184,162,58,.85)', huerta: 'rgba(109,143,58,.85)' };
+    LY.LOTS.forEach(l => { rect(l, C[l.cultivo]); const [a, b] = P((l.x0 + l.x1) / 2, (l.z0 + l.z1) / 2); rg.fillStyle = '#fff'; rg.fillText(l.name.split(' ')[0], a, b + 4 * dpr); });
+    rect(LY.ALMACEN, 'rgba(200,38,29,.55)'); rect(LY.SHED, 'rgba(31,154,108,.5)');
+    if (Sim.pi.plan) line(Sim.pi.plan.nodos.map(Sim.ptXZ), css('--w-bus'), 2, true);
+    line(pts.slice(-3000), css('--mint'), 2.2, false);
+    Object.entries(Sim.FINCA.puntos).forEach(([id, q]) => { const [a, b] = P(q.x, -q.y); if (q.tipo === 'cruce') return;
+      rg.fillStyle = q.tipo === 'puesto' ? '#1f9a6c' : q.tipo === 'almacen' ? '#c8261d' : '#e39b12'; rg.beginPath(); rg.arc(a, b, (id === Sim.pi.pos ? 6 : 4.5) * dpr, 0, 7); rg.fill();
+      rg.fillStyle = css('--fg'); rg.fillText(ptName(id), a, b - 8 * dpr); });
+  } else {
+    const m = Sim.marksFor(st.surface === 'finca' ? 'firme' : st.surface), plan = st.plan ? st.plan.pts : [];
+    rect(LY.PATIO, 'rgba(167,163,154,.4)'); rect(LY.ZONES[0], 'rgba(150,150,150,.45)'); rect(LY.ZONES[1], 'rgba(122,90,58,.55)'); rect(LY.ZONES[2], 'rgba(216,192,138,.65)');
+    rect({ x0: LY.RAMP.x0, x1: LY.RAMP.x1, z0: LY.RAMP.zEnd, z1: LY.RAMP.zBase }, 'rgba(111,81,52,.6)');
+    line(plan, css('--w-bus'), 1.8, true);
+    line(st.bench ? [] : pts.slice(-1500), css('--mint'), 2.4, false);
+    [['A', m.A], ['B', m.B]].concat(st.surface === 'rampa' ? [] : [['C', m.C]]).forEach(([k, [x, z]]) => { const [a, b] = P(x, z); rg.fillStyle = css('--w-5v'); rg.beginPath(); rg.arc(a, b, 4 * dpr, 0, 7); rg.fill(); rg.fillStyle = css('--fg'); rg.fillText(k, a, b - 8 * dpr); });
+    if (st.plan && Sim.planLine && Sim.planLine.visible) { const [a, b] = P(...st.plan.end); rg.strokeStyle = css('--w-bus'); rg.lineWidth = 1.5 * dpr; rg.beginPath(); rg.arc(a, b, 6 * dpr, 0, 7); rg.stroke(); }
+  }
   const [rx, ry] = P(st.x, st.z); rg.save(); rg.translate(rx, ry); rg.rotate(-st.yaw);
-  rg.fillStyle = css('--mint'); rg.beginPath(); rg.moveTo(11 * dpr, 0); rg.lineTo(-6 * dpr, 6 * dpr); rg.lineTo(-3 * dpr, 0); rg.lineTo(-6 * dpr, -6 * dpr); rg.closePath(); rg.fill(); rg.restore();
+  rg.fillStyle = '#fff'; rg.strokeStyle = '#123'; rg.lineWidth = dpr; rg.beginPath(); rg.moveTo(10 * dpr, 0); rg.lineTo(-6 * dpr, 6 * dpr); rg.lineTo(-3 * dpr, 0); rg.lineTo(-6 * dpr, -6 * dpr); rg.closePath(); rg.fill(); rg.stroke(); rg.restore();
 }
 
 /* ---------- Carga ---------- */
@@ -289,7 +334,7 @@ $('bBomCsv').addEventListener('click', () => download('presupuesto-ugv.csv', 'it
 UGV.on('parts', renderBom); renderBom();
 
 /* Tiles de la pestaña Proyecto */
-const tiles = [['6', 'elementos en el diseño final'], ['2 kg', 'carga útil máxima'], ['7,4 V', '2 celdas en serie'], ['GPIO 12 y 13', 'PWM por hardware'], ['firme · tierra · arena', 'superficies de prueba'], ['P1 – P10', 'protocolo de pruebas']];
+const tiles = [['6', 'elementos en el diseño final'], ['2 kg', 'carga útil máxima'], ['GPIO 12 y 13', 'PWM por hardware'], ['A · B · C · D · Almacén', 'puntos de la finca'], ['0', 'cultivos pisados: solo usa los caminos'], ['P1 – P10', 'protocolo de pruebas']];
 $('tiles').innerHTML = tiles.map(([v, l]) => `<div class="tile"><b>${v}</b><span>${l}</span></div>`).join('');
 
 UGV.goTab(fromHash());

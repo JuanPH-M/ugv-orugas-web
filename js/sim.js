@@ -1,6 +1,6 @@
-/* Simulador 3D: zona de pruebas (firme, tierra, arena y rampa), robot, cables, física,
-   y el mismo programa de la Raspberry Pi que corre en el prototipo (raspberry/ugv.py):
-   control remoto con parada si dejan de llegar órdenes y recorrido programado por tramos de tiempo, en lazo abierto. */
+/* Simulador 3D: la finca (js/finca3d.js) con su patio de pruebas, el robot, cables, física,
+   y el mismo programa de la Raspberry Pi que corre en el prototipo (raspberry/ugv.py): control remoto con parada si dejan
+   de llegar órdenes, recorrido por tramos de tiempo y modo automático por los puntos de la finca (js/auto.js), en lazo abierto. */
 (function () {
 'use strict';
 const T = THREE, G = UGV.GEOM, S = UGV.state;
@@ -28,53 +28,38 @@ const P = Sim.P = {
 const SOIL = Sim.SOIL = {
   firme: { name: 'superficie firme', mur: .05, slipLong: .99, chi: 1.0 },
   tierra: { name: 'tierra', mur: .10, slipLong: .93, chi: 1.15 },
-  arena: { name: 'arena', mur: .17, slipLong: .80, chi: 1.35 }
+  arena: { name: 'arena', mur: .17, slipLong: .80, chi: 1.35 },
+  camino: { name: 'camino de tierra', mur: .08, slipLong: .96, chi: 1.08 },
+  pasto: { name: 'pasto', mur: .13, slipLong: .9, chi: 1.2 }
 };
 const ocvCell = soc => { const t = [[0, 3.0], [.05, 3.3], [.1, 3.45], [.2, 3.6], [.5, 3.75], [.8, 3.95], [1, 4.2]];
   for (let i = 1; i < t.length; i++) if (soc <= t[i][0]) { const [a, va] = t[i - 1], [b, vb] = t[i]; return va + (vb - va) * (soc - a) / (b - a); } return 4.2; };
 Sim.cells = () => 2;
 
-/* ---------- La zona de pruebas (unidades: cm; x = este, z = sur) ---------- */
-const AREA = Sim.AREA = { x0: -700, x1: 700, z0: -620, z1: 520 };
-const ZONES = Sim.ZONES = [
-  { id: 'firme', name: 'Superficie firme', x0: -650, x1: -230, z0: -140, z1: 460, cx: -440 },
-  { id: 'tierra', name: 'Tierra', x0: -210, x1: 210, z0: -140, z1: 460, cx: 0 },
-  { id: 'arena', name: 'Arena', x0: 230, x1: 650, z0: -140, z1: 460, cx: 440 }
-];
-const RAMP = Sim.RAMP = { x0: -120, x1: 120, zBase: -170, len: 250, zEnd: -590, deg: 8 };
-const TANR = Math.tan(RAMP.deg * DEG);
-/* Marcas A, B y C de la prueba P8 en cada superficie: A→B 200 cm al norte, giro a la derecha, B→C 150 cm al este */
-const marksFor = id => { if (id === 'rampa') return { A: [0, -110], B: [0, -470], C: [0, -470], yaw: Math.PI / 2 };
-  const z = ZONES.find(q => q.id === id), x = z.cx - 60; return { A: [x, 390], B: [x, 190], C: [x + 150, 190], yaw: Math.PI / 2 }; };
-Sim.marksFor = marksFor;
-
-function H(x, z) { // altura del terreno: solo la rampa de tierra
-  if (x < RAMP.x0 - 1 || x > RAMP.x1 + 1 || z > RAMP.zBase) return 0;
-  const d = Math.min(RAMP.len, RAMP.zBase - z), blend = 20;
-  const h = d < blend ? TANR * d * d / (2 * blend) : TANR * (d - blend / 2);
-  return h;
-}
-Sim.H = H;
-const inRect = (x, z, r, m = 0) => x >= r.x0 - m && x <= r.x1 + m && z >= r.z0 - m && z <= r.z1 + m;
-function soilAt(x, z) {
-  if (z < RAMP.zBase + 20 && x >= RAMP.x0 && x <= RAMP.x1) return 'tierra';
-  for (const q of ZONES) if (inRect(x, z, q)) return q.id;
-  return 'firme';
-}
-Sim.soilAt = soilAt;
+/* ---------- La finca y el patio de pruebas (js/finca3d.js; unidades: cm; x = este, z = sur) ---------- */
+const LY = UGV.LAYOUT, MAPA = Sim.MAPA = UGV.MAPA, FINCA = Sim.FINCA = UGV.FINCA;
+const AREA = Sim.AREA = LY.AREA, ZONES = Sim.ZONES = LY.ZONES, RAMP = Sim.RAMP = LY.RAMP;
+const marksFor = Sim.marksFor = LY.marksFor, H = Sim.H = LY.H, soilAt = Sim.soilAt = LY.soilAt;
+Sim.LOTS = LY.LOTS; Sim.PATHS = LY.PATHS; Sim.LY = LY;
+Sim.benchPos = LY.BENCH;
+const ptXZ = id => [FINCA.puntos[id].x, -FINCA.puntos[id].y];
+Sim.ptXZ = ptXZ;
 
 /* ---------- Estado ---------- */
 const st = Sim.st = {
   jx: 0, jy: 0, keys: {}, vmax: .6, slip: 1.6, mismatch: .02, factorDer: 1, timeoutMs: 800, load: 0,
-  mode: 'remoto', surface: 'firme', bench: false, wifiCut: false, x: 0, z: 0, yaw: Math.PI / 2, vl: 0, vr: 0, dutyL: 0, dutyR: 0, sf: 1,
+  mode: 'remoto', surface: 'finca', bench: false, wifiCut: false, x: 0, z: 0, yaw: Math.PI / 2, vl: 0, vr: 0, dutyL: 0, dutyR: 0, sf: 1,
   soc: .86, vbat: 8.1, ibat: 0, iL: 0, iR: 0, timeScale: 1, simSpeed: 1, t: 0,
-  path: [], plan: null, dev: null, devLast: null, routes: 0, quiet: false, testing: false, testCmd: null, grade: 0, soil: 'firme', bumps: 0, held: false
+  path: [], plan: null, dev: null, devLast: null, routes: 0, quiet: false, testing: false, testCmd: null, grade: 0, soil: 'firme', bumps: 0, held: false,
+  crops: 0, cropHit: null, esperarOrden: false, arrivals: [],
+  cfg: { vel_auto: 60, cm_s: null, grados_s: null, espera_s: 1, pausa_giro_s: .5, prueba_s: 10 }   // config.json del modo automático (se calibra al iniciar)
 };
 /* El programa de la Raspberry Pi (misma lógica que raspberry/ugv.py) */
-const pi = Sim.pi = { modo: 'ESPERA', izq: 0, der: 0, ultima: 0, rec: null, frozen: false, boot: 0, on: false };
+const pi = Sim.pi = { modo: 'ESPERA', izq: 0, der: 0, ultima: 0, rec: null, frozen: false, boot: 0, on: false,
+  pos: FINCA.inicio, rumbo: +(FINCA.rumbo_inicial ?? 90), tourI: 0, plan: null };
 const hist = Sim.hist = []; const log = Sim.log = [];
 
-let renderer, scene, camera, controls, robot, chassis, sun, canvas, ground, bench;
+let renderer, scene, camera, controls, robot, chassis, sun, canvas;
 const groups = {}, built = {};
 let view = 'orbit', wiresOn = true, openBox = false, selected = null, selBox = null;
 
@@ -84,62 +69,9 @@ let route = Sim.route = [];
 Sim.setRoute = r => { route = Sim.route = r.map(t => ({ tipo: t.tipo, velocidad: +t.velocidad || 0, duracion: +t.duracion || .1 })); planRoute(); UGV.emit('route', route); };
 
 /* ---------- Texturas ---------- */
-function areaTex() {
-  const N = 2048, Wd = AREA.x1 - AREA.x0, Hd = AREA.z1 - AREA.z0, k = N / Math.max(Wd, Hd), X = x => (x - AREA.x0) * k, Z = z => (z - AREA.z0) * k;
-  return UGV.tex(N, N, (g) => {
-    g.fillStyle = '#9b9890'; g.fillRect(0, 0, N, N); // patio de concreto
-    for (let i = 0; i < 16000; i++) { g.fillStyle = `rgba(${Math.random() < .5 ? '60,60,60' : '230,230,225'},${Math.random() * .08})`; g.fillRect(Math.random() * N, Math.random() * N, 2, 2); }
-    g.strokeStyle = 'rgba(70,70,70,.35)'; g.lineWidth = 2; for (let x = AREA.x0; x < AREA.x1; x += 200) { g.beginPath(); g.moveTo(X(x), 0); g.lineTo(X(x), N); g.stroke(); }
-    for (let z = AREA.z0; z < AREA.z1; z += 200) { g.beginPath(); g.moveTo(0, Z(z)); g.lineTo(N, Z(z)); g.stroke(); }
-    const fill = (q, base, dots) => { g.fillStyle = base; g.fillRect(X(q.x0), Z(q.z0), (q.x1 - q.x0) * k, (q.z1 - q.z0) * k);
-      for (let i = 0; i < 9000; i++) { g.fillStyle = dots[i % dots.length]; g.fillRect(X(q.x0) + Math.random() * (q.x1 - q.x0) * k, Z(q.z0) + Math.random() * (q.z1 - q.z0) * k, 2 + Math.random() * 2, 2 + Math.random() * 2); } };
-    fill(ZONES[0], '#b8b5ad', ['rgba(90,90,90,.12)', 'rgba(255,255,255,.12)']);
-    fill(ZONES[1], '#7a5a3a', ['rgba(50,32,18,.3)', 'rgba(150,110,70,.25)']);
-    fill(ZONES[2], '#d8c08a', ['rgba(150,120,70,.25)', 'rgba(250,235,190,.3)']);
-    fill({ x0: RAMP.x0, x1: RAMP.x1, z0: RAMP.zEnd, z1: RAMP.zBase }, '#6f5134', ['rgba(50,32,18,.3)', 'rgba(150,110,70,.25)']);
-    g.strokeStyle = 'rgba(255,255,255,.85)'; g.lineWidth = 4; ZONES.forEach(q => g.strokeRect(X(q.x0), Z(q.z0), (q.x1 - q.x0) * k, (q.z1 - q.z0) * k));
-    // marcas de cinta A, B y C con la línea de partida
-    ZONES.map(q => q.id).concat(['rampa']).forEach(id => { const m = marksFor(id);
-      g.fillStyle = '#f2c230'; g.fillRect(X(m.A[0] - 25), Z(m.A[1]) - 3, 50 * k, 6);
-      [['A', m.A], ['B', m.B], ['C', m.C]].forEach(([s, p]) => { if (id === 'rampa' && s === 'C') return;
-        g.strokeStyle = '#f2c230'; g.lineWidth = 5; g.beginPath(); g.moveTo(X(p[0] - 8), Z(p[1] - 8)); g.lineTo(X(p[0] + 8), Z(p[1] + 8)); g.moveTo(X(p[0] + 8), Z(p[1] - 8)); g.lineTo(X(p[0] - 8), Z(p[1] + 8)); g.stroke();
-        g.fillStyle = '#1b1d1f'; g.font = `700 ${Math.round(17 * k)}px "Saira Condensed", sans-serif`; g.fillText(s, X(p[0] + 12), Z(p[1] - 8)); }); });
-  });
-}
 function contactTex() {
   return UGV.tex(128, 128, (g) => { const r = g.createRadialGradient(64, 64, 4, 64, 64, 64); r.addColorStop(0, 'rgba(0,0,0,.55)'); r.addColorStop(.6, 'rgba(0,0,0,.18)'); r.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = r; g.fillRect(0, 0, 128, 128); });
 }
-function signTex(txt, sub) {
-  return UGV.tex(512, 192, (g, w, h) => { g.fillStyle = '#1e5b3a'; g.fillRect(0, 0, w, h); g.strokeStyle = '#f2efe2'; g.lineWidth = 8; g.strokeRect(8, 8, w - 16, h - 16);
-    g.fillStyle = '#f2efe2'; g.textAlign = 'center'; g.font = '700 64px "Saira Condensed", sans-serif'; g.fillText(txt, w / 2, 92); g.font = '500 30px "IBM Plex Sans", sans-serif'; g.fillText(sub, w / 2, 148); });
-}
-
-/* ---------- Escenario ---------- */
-function buildArea() {
-  const Wd = AREA.x1 - AREA.x0, Hd = AREA.z1 - AREA.z0, side = Math.max(Wd, Hd);
-  const geo = new T.PlaneGeometry(side, side, 140, 140); geo.rotateX(-Math.PI / 2); geo.translate(AREA.x0 + side / 2, 0, AREA.z0 + side / 2);
-  const pos = geo.attributes.position; for (let i = 0; i < pos.count; i++) pos.setY(i, H(pos.getX(i), pos.getZ(i))); geo.computeVertexNormals();
-  ground = new T.Mesh(geo, new T.MeshStandardMaterial({ map: areaTex(), roughness: .95, metalness: 0, envMapIntensity: .15 }));
-  ground.receiveShadow = true; scene.add(ground); Sim.floor = ground;
-  const out = new T.Mesh(new T.PlaneGeometry(9000, 9000), new T.MeshStandardMaterial({ color: 0x7d9a4a, roughness: 1 }));
-  out.rotation.x = -Math.PI / 2; out.position.y = -1; scene.add(out);
-  // costados de la rampa de tierra
-  const earth = new T.MeshStandardMaterial({ color: 0x6b4d31, roughness: 1 });
-  [RAMP.x0, RAMP.x1].forEach(x => { const s = new T.Shape(); s.moveTo(0, 0); s.lineTo(RAMP.len, RAMP.len * TANR); s.lineTo(RAMP.zBase - RAMP.zEnd, RAMP.len * TANR); s.lineTo(RAMP.zBase - RAMP.zEnd, 0); s.lineTo(0, 0);
-    const m = new T.Mesh(new T.ShapeGeometry(s), earth); m.rotation.y = Math.PI / 2; m.position.set(x, 0, RAMP.zBase); m.material.side = T.DoubleSide; m.receiveShadow = true; scene.add(m); });
-  // mesa del banco de pruebas y letreros
-  const wood = new T.MeshStandardMaterial({ color: 0x9a7b55, roughness: .8 }), metal = new T.MeshStandardMaterial({ color: 0x8f969c, roughness: .5, metalness: .6 });
-  bench = new T.Group(); const top = new T.Mesh(new T.BoxGeometry(70, 4, 50), wood); top.position.y = 75; top.castShadow = top.receiveShadow = true; bench.add(top);
-  [[-31, -21], [31, -21], [-31, 21], [31, 21]].forEach(([x, z]) => { const l = new T.Mesh(new T.BoxGeometry(4, 73, 4), metal); l.position.set(x, 36.5, z); bench.add(l); });
-  const stand = new T.Mesh(new T.BoxGeometry(10, 5, 8), new T.MeshStandardMaterial({ color: 0x2b2b2b })); stand.position.y = 79.5; bench.add(stand);
-  bench.position.set(-560, 0, -330); scene.add(bench); Sim.benchPos = { x: -560, z: -330, y: 82 };
-  [['FIRME', 'superficie de prueba', -440], ['TIERRA', 'nivelada y compactada', 0], ['ARENA', 'seca y suelta', 440]].forEach(([a, b, x]) => {
-    const m = new T.Mesh(new T.PlaneGeometry(130, 48), new T.MeshStandardMaterial({ map: signTex(a, b), roughness: .7 })); m.position.set(x, 60, 470); m.rotation.y = Math.PI; scene.add(m);
-    const post = new T.Mesh(new T.BoxGeometry(4, 60, 4), metal); post.position.set(x, 30, 472); scene.add(post); });
-  const rs = new T.Mesh(new T.PlaneGeometry(130, 48), new T.MeshStandardMaterial({ map: signTex('RAMPA', `tierra · ${RAMP.deg}° (ejemplo)`), roughness: .7 })); rs.position.set(190, 60, -200); rs.rotation.y = -Math.PI / 2; scene.add(rs);
-  const bs = new T.Mesh(new T.PlaneGeometry(110, 42), new T.MeshStandardMaterial({ map: signTex('BANCO', 'vehículo levantado'), roughness: .7 })); bs.position.set(-560, 120, -360); scene.add(bs);
-}
-
 /* ---------- Inicio ---------- */
 Sim.init = function (cv) {
   canvas = cv;
@@ -148,12 +80,12 @@ Sim.init = function (cv) {
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.outputEncoding = T.sRGBEncoding; renderer.toneMapping = T.ACESFilmicToneMapping; renderer.toneMappingExposure = .82;
   renderer.shadowMap.enabled = true; renderer.shadowMap.type = T.PCFSoftShadowMap;
-  scene = new T.Scene(); scene.background = new T.Color(0xbcd6e8); scene.fog = new T.Fog(0xbcd6e8, 2600, 7600);
+  scene = new T.Scene(); scene.background = new T.Color(0xbcd6e8); scene.fog = new T.Fog(0xbcd6e8, 6000, 16000);
   const pm = new T.PMREMGenerator(renderer); scene.environment = pm.fromScene(new T.RoomEnvironment(), .04).texture;
-  const m0 = marksFor('firme');
-  camera = new T.PerspectiveCamera(36, 1, .5, 12000); camera.position.set(m0.A[0] + 34, 22, m0.A[1] + 38);
+  const m0 = marksFor('finca');
+  camera = new T.PerspectiveCamera(36, 1, .5, 20000); camera.position.set(m0.A[0] + 34, 22, m0.A[1] + 38);
   controls = new T.OrbitControls(camera, canvas);
-  controls.target.set(m0.A[0], 5, m0.A[1]); controls.enableDamping = true; controls.maxPolarAngle = Math.PI * .48; controls.minDistance = 9; controls.maxDistance = 2600;
+  controls.target.set(m0.A[0], 5, m0.A[1]); controls.enableDamping = true; controls.maxPolarAngle = Math.PI * .48; controls.minDistance = 9; controls.maxDistance = 6000;
 
   scene.add(new T.HemisphereLight(0xdfefff, 0x6b5a3a, .55));
   sun = new T.DirectionalLight(0xfff1d8, 1.35); sun.position.set(40, 300, 30); sun.castShadow = true;
@@ -162,7 +94,8 @@ Sim.init = function (cv) {
   scene.add(sun, sun.target);
   const fill = new T.DirectionalLight(0xdfe9ff, .3); fill.position.set(-60, 40, -50); scene.add(fill);
 
-  buildArea();
+  Sim.floor = UGV.Finca3D.build(scene);
+  Sim.autoLine = new T.Line(new T.BufferGeometry(), new T.LineDashedMaterial({ color: 0x2d4fb8, dashSize: 14, gapSize: 9 })); Sim.autoLine.frustumCulled = false; scene.add(Sim.autoLine);
   const mkTrail = (col, dashed) => { const g = new T.BufferGeometry(); g.setAttribute('position', new T.BufferAttribute(new Float32Array(12000 * 3), 3)); g.setDrawRange(0, 0);
     const l = new T.Line(g, dashed ? new T.LineDashedMaterial({ color: col, dashSize: 8, gapSize: 6 }) : new T.LineBasicMaterial({ color: col })); l.frustumCulled = false; scene.add(l); return { g, l, n: 0 }; };
   Sim.trail = mkTrail(0x1f9a6c);
@@ -179,7 +112,8 @@ Sim.init = function (cv) {
   scene.traverse(o => { if (o.material) [].concat(o.material).forEach(m => { if ('envMapIntensity' in m && m.envMapIntensity === 1) m.envMapIntensity = .5; }); });
 
   Sim.setRoute(Sim.defaultRoute());
-  Sim.toMark('firme');
+  Sim.auto.calibrar(true);
+  Sim.toMark('finca');
   syncParts();
   UGV.on('parts', () => { syncParts(); rebuildWires(); });
   UGV.on('wires', rebuildWires);
@@ -311,8 +245,8 @@ Sim.resetSel = () => { if (!selected) return; delete S.pos[selected]; UGV.save()
 
 /* ---------- Cámara ---------- */
 Sim.setView = v => { view = v; controls.enabled = v === 'orbit'; if (v === 'orbit') controls.target.set(st.x, H(st.x, st.z) + 5, st.z); camera.fov = 36; camera.updateProjectionMatrix(); UGV.emit('view', v); };
-Sim.overview = () => { Sim.setView('orbit'); controls.target.set(0, 0, -40); camera.position.set(900, 1150, 1250); };
-Sim.snapshot = () => { renderer.render(scene, camera); canvas.toBlob(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'ugv-orugas-pruebas.png'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); }); };
+Sim.overview = () => { Sim.setView('orbit'); controls.target.set(80, 0, -20); camera.position.set(1050, 1500, -1500); }; // desde el noreste: la finca al frente y el patio detrás
+Sim.snapshot = () => { renderer.render(scene, camera); canvas.toBlob(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'ugv-orugas-finca.png'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); }); };
 Sim.applyTheme = () => { if (selBox) selBox.material.color.set(0x1f9a6c); rebuildWires(); };
 Sim.resize = () => { if (!renderer) return; const r = canvas.parentElement.getBoundingClientRect(); renderer.setSize(r.width, r.height, false); camera.aspect = r.width / Math.max(1, r.height); camera.updateProjectionMatrix(); };
 
@@ -331,20 +265,22 @@ function driveOK(a, side) {
 Sim.robotMass = () => UGV.PARTS.reduce((s, p) => s + (UGV.isOn(p.id) ? p.mass : 0), 0) / 1000;
 
 /* ---------- Programa de la Raspberry Pi (igual que raspberry/ugv.py) ---------- */
-function piMover(izq, der) { pi.izq = Math.round(clamp(izq, -100, 100)); pi.der = Math.round(clamp(der * st.factorDer, -100, 100)); }
-function piParar(motivo) { pi.izq = pi.der = 0; if (pi.rec) { pi.rec = null; if (motivo !== 'fin') st.routeAborted = true; } pi.modo = motivo === 'sin órdenes' ? 'DETENIDO POR SEGURIDAD' : 'ESPERA'; }
+function piMover(izq, der) { pi.izq = clamp(izq, -100, 100); pi.der = clamp(der * st.factorDer, -100, 100); } // como Motores en ugv.py: la PWM usa el valor exacto
+function piParar(motivo) { pi.izq = pi.der = 0; if (pi.rec) { pi.rec = null; if (motivo !== 'fin') st.routeAborted = true; }
+  if (pi.plan) { pi.plan = null; drawAutoLine(null); }
+  pi.modo = motivo === 'sin órdenes' ? 'DETENIDO POR SEGURIDAD' : 'ESPERA'; }
 Sim.piParar = () => { if (pi.on && !pi.frozen && !st.wifiCut) piParar('detener'); };
 function piStep(dt) {
   const powered = !!(an && an.rpiOn);
   if (!powered) { if (pi.on && !st.quiet) UGV.emit('toast', S.batteryOn === false ? 'Batería desconectada: todo se apaga (corte total).' : 'La Raspberry Pi se quedó sin alimentación.');
     Object.assign(pi, { on: false, modo: 'APAGADA', izq: 0, der: 0, rec: null, frozen: false, boot: P.boot }); return; }
   if (!pi.on) { pi.on = true; pi.boot = st.testing ? 0 : P.boot; }
-  if (pi.boot > 0) { pi.boot -= dt; pi.modo = 'ARRANCANDO'; pi.izq = pi.der = 0; pi.ultima = st.t; return; }
+  if (pi.boot > 0) { pi.boot -= dt; pi.modo = pi.boot > 0 ? 'ARRANCANDO' : 'ESPERA'; pi.izq = pi.der = 0; pi.ultima = st.t; return; }
   if (pi.frozen) return; // programa bloqueado: los pines se quedan como estaban
   const wifi = !st.wifiCut;
-  if (st.mode === 'remoto' && !pi.rec) {
+  if (st.mode === 'remoto' && !pi.rec && !pi.plan) {
     const [L, R] = phoneCmd(), active = !!(L || R);
-    if (active && wifi) { piMover(L * 100, R * 100); pi.ultima = st.t; pi.modo = pi.izq || pi.der ? 'CONTROL REMOTO' : 'ESPERA'; }
+    if (active && wifi) { piMover(L * 100, R * 100); pi.ultima = st.t; pi.modo = pi.izq || pi.der ? 'CONTROL REMOTO' : 'ESPERA'; if (pi.izq || pi.der) pi.pos = pi.rumbo = null; }
     if (!active && st.held && wifi) piParar('detener'); // la página envía «parar» al soltar
     st.held = active;
   }
@@ -355,7 +291,8 @@ function piStep(dt) {
     if (r.i >= route.length) { piParar('fin'); routeEnd(); }
     else { const t = route[r.i], [sl, sr] = TIPOS[t.tipo]; piMover(sl * t.velocidad, sr * t.velocidad); pi.modo = 'RECORRIDO PROGRAMADO'; }
   }
-  if ((pi.izq || pi.der || pi.rec) && (st.t - pi.ultima) * 1000 > st.timeoutMs) {
+  if (pi.plan) autoStep(dt, wifi);
+  if ((pi.izq || pi.der || pi.rec || (pi.plan && pi.modo !== 'ESPERANDO ORDEN')) && (st.t - pi.ultima) * 1000 > st.timeoutMs) {
     piParar('sin órdenes'); if (!st.quiet) UGV.emit('toast', `Sin órdenes del celular durante ${st.timeoutMs} ms: la Raspberry Pi detuvo los motores.`);
   }
 }
@@ -366,7 +303,99 @@ function phoneCmd() { // órdenes del celular (joystick o teclado del simulador)
   let L = y + x, R = y - x; const mm = Math.max(1, Math.abs(L), Math.abs(R)); return [L / mm * st.vmax, R / mm * st.vmax];
 }
 
-/* ---------- Recorrido: plan ideal (tramos rectos) y desviación final ---------- */
+
+/* ---------- Modo automático por la finca (misma lógica que Controlador en raspberry/ugv.py) ---------- */
+function drawAutoLine(nodos) {
+  if (!Sim.autoLine) return; Sim.autoLine.geometry.dispose();
+  Sim.autoLine.geometry = new T.BufferGeometry().setFromPoints((nodos || []).map(id => { const [x, z] = ptXZ(id); return new T.Vector3(x, H(x, z) + 2, z); }));
+  Sim.autoLine.computeLineDistances(); Sim.autoLine.visible = !!nodos;
+}
+function autoNext() { const pl = pi.plan; pl.i++; pl.t = 0; pl.started = pl.arrived = false; pl.sigue = false; }
+function autoStep(dt, wifi) {
+  const pl = pi.plan, p = pl.pasos[pl.i];
+  if (pi.modo !== 'ESPERANDO ORDEN' && wifi) pi.ultima = st.t; // latido de la página
+  if (!p) { // fin del plan
+    piMover(0, 0); if (pl.tour && pi.pos === FINCA.inicio) pi.tourI = 0;
+    const fin = pl.nombre; pi.plan = null; pi.modo = 'ESPERA'; drawAutoLine(null);
+    if (!st.quiet) UGV.emit('toast', `Terminó: ${fin}. El robot cree estar en ${pi.pos}.`); UGV.emit('autoEnd', pi.pos); return;
+  }
+  if (p.llega !== undefined) {
+    if (!pl.arrived) { pl.arrived = true; pl.t = 0; piMover(0, 0); pi.pos = p.llega;
+      if (pl.tour && pi.tourI < MAPA.orden.length && p.llega === MAPA.orden[pi.tourI]) pi.tourI++;
+      const [x, z] = ptXZ(p.llega); st.arrivals.push({ id: p.llega, err: Math.hypot(st.x - x, st.z - z) });
+      if (p.esperar === 'orden') pi.modo = 'ESPERANDO ORDEN';
+      UGV.emit('autoArrive', p.llega); }
+    if (p.esperar === 'orden') { if (pl.sigue) { pi.modo = 'AUTOMÁTICO'; pi.ultima = st.t; autoNext(); } }
+    else { pl.t += dt; if (pl.t >= p.esperar) autoNext(); }
+    return;
+  }
+  if (!pl.started) { pl.started = true; pl.t = 0; if (p.fin) pi.pos = pi.rumbo = null; const [sl, sr] = TIPOS[p.tipo]; piMover(sl * p.velocidad, sr * p.velocidad); }
+  pl.t += dt; if (pl.t >= p.duracion) { if (p.fin) { pi.pos = p.fin.pos; pi.rumbo = p.fin.rumbo; } autoNext(); }
+}
+Sim.auto = {
+  listo() {
+    if (!pi.on || pi.boot > 0) return 'La Raspberry Pi no está lista: revisa la batería y el circuito.';
+    if (pi.frozen) return 'El programa está bloqueado: desconecta la batería para reiniciar.';
+    if (st.wifiCut) return 'Sin Wi-Fi el celular no puede dar la orden.';
+    if (pi.rec || (pi.plan && pi.modo !== 'ESPERANDO ORDEN')) return 'El vehículo está en marcha: espera a que llegue o deténlo.';
+    if (pi.pos === null || pi.rumbo === null) return 'No se sabe dónde está el robot: llévalo a un punto y pulsa «El robot está aquí».';
+    if (!st.cfg.cm_s || !st.cfg.grados_s) return 'Primero calibra el avance y el giro.';
+    return null;
+  },
+  iniciar(nombre, destinos, tour) {
+    const err = this.listo(); if (err) { UGV.emit('toast', err); return false; }
+    if (st.bench) Sim.setBench(false);
+    let r; try { r = UGV.Auto.plan(MAPA, pi.pos, pi.rumbo, destinos, st.cfg, st.esperarOrden); } catch (e) { UGV.emit('toast', e.message); return false; }
+    pi.plan = { nombre, pasos: r.pasos, nodos: r.nodos, i: 0, t: 0, tour, started: false, arrived: false, sigue: false };
+    pi.modo = 'AUTOMÁTICO'; pi.ultima = st.t; st.mode = 'auto'; st.jx = st.jy = 0; st.keys = {}; st.arrivals = [];
+    drawAutoLine(r.nodos); UGV.emit('mode', st.mode); return true;
+  },
+  ir(dest) { if (dest === pi.pos && !pi.plan) { UGV.emit('toast', `El robot ya está en ${dest}.`); return false; } return this.iniciar(`ir a ${dest}`, [dest], false); },
+  recorrido(desdeCero) {
+    if (desdeCero || pi.tourI >= MAPA.orden.length) pi.tourI = 0;
+    let dest = MAPA.orden.slice(pi.tourI).concat([MAPA.inicio]);
+    if (dest[0] === pi.pos && !this.listo()) { dest = dest.slice(1); if (pi.tourI < MAPA.orden.length) pi.tourI++; }
+    return this.iniciar('recorrido completo' + (desdeCero ? ' desde cero' : ''), dest, true);
+  },
+  siguiente() { if (pi.modo !== 'ESPERANDO ORDEN' || !pi.plan) { UGV.emit('toast', 'El robot no está esperando una orden.'); return false; } pi.plan.sigue = true; return true; },
+  posicion(id) { // el usuario lleva el robot al punto y lo indica (en el simulador, el robot se coloca allí)
+    if (pi.rec || (pi.plan && pi.modo !== 'ESPERANDO ORDEN') || pi.izq || pi.der) { UGV.emit('toast', 'Detén el vehículo antes de indicar dónde está.'); return false; }
+    if (pi.plan) { pi.plan = null; drawAutoLine(null); }
+    const [x, z] = ptXZ(id), rumbo = +(FINCA.rumbo_inicial ?? 90);
+    Object.assign(st, { x, z, yaw: rumbo * DEG, vl: 0, vr: 0, bench: false }); pi.pos = id; pi.rumbo = rumbo; pi.modo = pi.on ? 'ESPERA' : pi.modo; if (id === FINCA.inicio) pi.tourI = 0;
+    st.surface = 'finca'; Sim.cmd('clear', true); UGV.emit('bench', false); return true;
+  },
+  /* Calibración como la haría el equipo: avanzar y girar 5 s a vel_auto en un camino de la finca y medir (aquí el simulador mide) */
+  calibrar(silencio) {
+    // tensión de la batería con los motores andando (la prueba se hace con el robot en marcha)
+    const vb = 2 * ocvCell(st.soc) - (P.irpi * 5 / (8 * .88) + 2 * .3) * P.rint * 2;
+    const v = st.cfg.vel_auto / 100, T5 = st.cfg.prueba_s, av = () => ghost([[v, v, T5], [0, 0, 1]], SOIL.camino, true, vb);
+    const mide = () => { const d = av(), g = ghost([[-v, v, T5], [0, 0, 1]], SOIL.camino, true, vb);
+      st.cfg.cm_s = Math.round(Math.hypot(d.x, d.z) / T5 * 100) / 100; st.cfg.grados_s = Math.round(Math.abs(g.yaw) / DEG / T5 * 100) / 100; return d; };
+    // 1) avance y giro; 2) desvío lateral del avance → factor de cada motor (misma fórmula que _ajustar_motores en ugv.py); 3) se repite con el factor nuevo
+    //    como hace el equipo: se repite la prueba de avance hasta que casi no se desvíe (el simulador mide con más precisión que una cinta)
+    const desvio = -mide().z; let d = desvio;
+    for (let k = 0; k < 25 && Math.abs(d) >= .05; k++) {
+      const largo = st.cfg.cm_s * T5, ancho = 2 * st.cfg.cm_s / (st.cfg.grados_s * DEG), r = .5 * 2 * d / (largo * largo) * ancho;
+      st.factorDer = Math.round(Math.min(1, st.factorDer / (1 + r)) * 10000) / 10000; d = -mide().z;
+    }
+    st.calSoc = st.soc; UGV.emit('factor', st.factorDer);
+    if (!silencio) UGV.emit('toast', `Calibración en el camino: ${Math.round(st.cfg.cm_s * T5)} cm y ${Math.round(st.cfg.grados_s * T5)}° en ${T5} s (desvío inicial ${Math.round(desvio)} cm) → ${String(st.cfg.cm_s).replace('.', ',')} cm/s, ${String(st.cfg.grados_s).replace('.', ',')} °/s y factor del motor B ${String(st.factorDer).replace('.', ',')}.`);
+    UGV.emit('calib', st.cfg); return st.cfg;
+  }
+};
+/* Modelo del robot real (con diferencia entre motores y factor de ajuste) en un suelo dado, desde reposo: para la calibración */
+function ghost(steps, soil, real, vb) {
+  let x = 0, z = 0, yaw = 0, vl = 0, vr = 0; const dt = 1 / 60; const vbat = vb || st.vbat;
+  steps.forEach(([L, R, dur]) => { const turn = L !== R ? 1 : 0, Rf = real ? R * st.factorDer : R;
+    const tl = trackSpeed(L, vbat, reqTorque(turn, 0, soil)).v, tr = trackSpeed(Rf, vbat, reqTorque(turn, 0, soil)).v * (real ? 1 + st.mismatch : 1);
+    for (let k = 0, n = Math.round(dur / dt); k < n; k++) { vl += (tl - vl) * dt / P.tau; vr += (tr - vr) * dt / P.tau;
+      yaw += (vr - vl) / (G.WB * st.slip * soil.chi) * dt; const v = (vl + vr) / 2 * soil.slipLong; x += v * Math.cos(yaw) * dt; z -= v * Math.sin(yaw) * dt; } });
+  return { x, z, yaw };
+}
+Sim.ghost = ghost;
+
+/* ---------- Recorrido por tramos: plan ideal (tramos rectos) y desviación final ---------- */
 /* Velocidad (cm/s) y giro (rad/s) esperados en superficie firme, sin diferencia entre motores ni carga extra */
 function nominal(vel, tipo) {
   const [sl, sr] = TIPOS[tipo]; if (!sl && !sr) return { v: 0, w: 0 };
@@ -403,9 +432,11 @@ Sim.runRoute = () => {
   if (pi.frozen) { UGV.emit('toast', 'El programa está bloqueado: desconecta la batería para reiniciar.'); return false; }
   if (st.wifiCut) { UGV.emit('toast', 'Sin Wi-Fi el celular no puede iniciar el recorrido.'); return false; }
   if (!route.length) { UGV.emit('toast', 'Agrega al menos un tramo.'); return false; }
+  if (pi.plan && pi.modo !== 'ESPERANDO ORDEN') { UGV.emit('toast', 'Hay un recorrido automático en curso.'); return false; }
   if (st.bench) Sim.setBench(false);
+  if (pi.plan) { pi.plan = null; drawAutoLine(null); }
   st.mode = 'recorrido'; st.jx = st.jy = 0; st.keys = {}; st.routeAborted = false; st.dev = null;
-  planRoute(); pi.rec = { i: 0, t: 0 }; pi.ultima = st.t; Sim.cmd('clear', true);
+  planRoute(); if (Sim.planLine) Sim.planLine.visible = true; pi.rec = { i: 0, t: 0 }; pi.ultima = st.t; pi.pos = pi.rumbo = null; Sim.cmd('clear', true);
   UGV.emit('mode', st.mode); return true;
 };
 function routeEnd() {
@@ -416,19 +447,23 @@ function routeEnd() {
 
 /* ---------- Comandos de la interfaz ---------- */
 Sim.cmd = (name, quiet) => {
-  if (name === 'stop') { st.jx = st.jy = 0; st.keys = {}; Sim.piParar(); if (st.mode === 'recorrido') { st.mode = 'remoto'; UGV.emit('mode', st.mode); } }
+  if (name === 'stop') { st.jx = st.jy = 0; st.keys = {}; Sim.piParar(); if (st.mode !== 'remoto') { st.mode = 'remoto'; UGV.emit('mode', st.mode); } }
   if (name === 'clear') { st.path = [[st.x, st.z]]; clearTrail(Sim.trail); if (!quiet) st.dev = null; }
   if (name === 'reset') Sim.toMark(st.surface);
 };
 Sim.toMark = id => {
-  st.surface = id; const m = marksFor(id);
+  if (id === 'finca') { st.surface = 'finca'; if (pi.on && !pi.frozen) piParar('detener'); Sim.auto.posicion(FINCA.inicio); planRoute(); if (Sim.planLine) Sim.planLine.visible = false;
+    if (controls && view === 'orbit') { controls.target.set(st.x, H(st.x, st.z) + 5, st.z); camera.position.set(st.x + 90, 80, st.z + 110); } return; }
+  st.surface = id; const m = marksFor(id); pi.pos = pi.rumbo = null; if (Sim.planLine) Sim.planLine.visible = true;
   Object.assign(st, { x: m.A[0], z: m.A[1], yaw: m.yaw, vl: 0, vr: 0, dev: null });
   if (pi.on && !pi.frozen) piParar('detener');
   if (st.bench) Sim.setBench(false);
   Sim.cmd('clear', true); planRoute(); if (controls && view === 'orbit') { controls.target.set(st.x, H(st.x, st.z) + 5, st.z); camera.position.set(st.x + 60, 55, st.z + 70); }
 };
-Sim.setMode = m => { if (m === 'remoto' && pi.rec) piParar('detener'); st.mode = m; UGV.emit('mode', m); };
-Sim.setJoy = (x, y) => { st.jx = x; st.jy = y; if ((x || y) && st.mode !== 'remoto') Sim.setMode('remoto'); };
+Sim.setMode = m => { if (m === 'remoto' && (pi.rec || pi.plan) && pi.on && !pi.frozen) piParar('detener'); st.mode = m; UGV.emit('mode', m); };
+Sim.setJoy = (x, y) => {
+  if ((x || y) && (pi.plan || pi.rec)) { if (!st.busyMsg) UGV.emit('toast', 'Hay un recorrido en curso: deténgalo primero (Parar).'); st.busyMsg = true; return; }
+  st.busyMsg = false; st.jx = x; st.jy = y; if ((x || y) && st.mode !== 'remoto') Sim.setMode('remoto'); };
 Sim.setLoad = kg => { st.load = kg; const p = Sim.parcel; p.visible = kg > 0; if (kg > 0) { const s = 3 + kg * 1.2; p.scale.set(s, s * .55, s); p.position.set(-2.6, G.PLATE_Y + 6.8 + s * .27, 0); } };
 Sim.setBench = on => { st.bench = on; if (on) { st.keepPose = { x: st.x, z: st.z, yaw: st.yaw }; Object.assign(st, { x: Sim.benchPos.x, z: Sim.benchPos.z, yaw: Math.PI / 2, vl: 0, vr: 0 }); }
   else if (st.keepPose) { Object.assign(st, st.keepPose, { vl: 0, vr: 0 }); st.keepPose = null; } Sim.cmd('clear', true); UGV.emit('bench', on); };
@@ -438,18 +473,22 @@ Sim.setBattery = on => { S.batteryOn = on; UGV.save(); an = UGV.analyze(st.vbat)
 addEventListener('keydown', e => { if (/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return; const k = e.key.toLowerCase();
   if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k) && UGV.activeTab === 'sim') { st.keys[k] = true; if (st.mode !== 'remoto') Sim.setMode('remoto'); e.preventDefault(); }
   if (k === ' ' && UGV.activeTab === 'sim') { Sim.cmd('stop'); e.preventDefault(); } });
+addEventListener('keydown', e => { if (pi.plan || pi.rec) { const k = e.key.toLowerCase(); if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) st.keys = {}; } }, true);
 addEventListener('keyup', e => { st.keys[e.key.toLowerCase()] = false; });
 
 function clearTrail(t) { if (!t) return; t.n = 0; t.g.setDrawRange(0, 0); }
 function pushTrail(t, x, z) { if (!t || t.n >= 12000) return; t.g.attributes.position.setXYZ(t.n, x, H(x, z) + .5, z); t.n++; t.g.attributes.position.needsUpdate = true; t.g.setDrawRange(0, t.n); }
 
-/* Límites: borde de la zona y costados de la rampa (radio del robot ≈ 10 cm) */
+/* Colisiones (radio del robot ≈ 10 cm): cerca, lotes de cultivo, paredes, troncos, rampa y banco */
 const RR = 10;
 function blockedAt(x, z, m) {
-  if (x < AREA.x0 + m || x > AREA.x1 - m || z < AREA.z0 + m || z > AREA.z1 - m) return true;
-  if (z < RAMP.zBase - 15 && (x < RAMP.x0 + m || x > RAMP.x1 - m) && x > RAMP.x0 - 60 && x < RAMP.x1 + 60) return true; // costados de la rampa
-  if (Math.hypot(x - Sim.benchPos.x, z - Sim.benchPos.z) < 45 + m && !st.bench) return true;
-  return false;
+  if (x < AREA.x0 + m || x > AREA.x1 - m || z < AREA.z0 + m || z > AREA.z1 - m) return 'cerca';
+  const lot = LY.lotAt(x, z, m); if (lot) return lot;
+  for (const w of LY.WALLS) if (LY.inRect(x, z, w, m)) return 'pared';
+  for (const t of LY.TREES) if (Math.hypot(x - t.x, z - t.z) < (t.k === 'guadua' ? 40 : 22) + m) return 'árbol';
+  if (z < RAMP.zBase - 15 && z > RAMP.zEnd - 10 && (x < RAMP.x0 + m || x > RAMP.x1 - m) && x > RAMP.x0 - 60 && x < RAMP.x1 + 60) return 'rampa';
+  if (Math.hypot(x - Sim.benchPos.x, z - Sim.benchPos.z) < 45 + m && !st.bench) return 'banco';
+  return null;
 }
 Sim.blockedAt = blockedAt;
 
@@ -493,7 +532,10 @@ function step(dt) {
   if (!st.bench) {
     v = (st.vl + st.vr) / 2 * soil.slipLong * Math.cos(st.grade); w = (st.vr - st.vl) / (G.WB * st.slip * soil.chi);
     const ny = st.yaw + w * dt, nx = st.x + v * Math.cos(ny) * dt, nz = st.z - v * Math.sin(ny) * dt;
-    if (!blockedAt(nx, nz, RR)) { st.x = nx; st.z = nz; st.bump = false; } else { if (!st.bump) st.bumps++; st.vl *= .2; st.vr *= .2; st.bump = true; }
+    const hit = blockedAt(nx, nz, RR);
+    if (!hit) { st.x = nx; st.z = nz; st.bump = false; st.cropHit = null; }
+    else { if (!st.bump) { st.bumps++; if (hit.cultivo && st.cropHit !== hit) { st.crops++; st.cropHit = hit; if (!st.quiet) UGV.emit('toast', `¡El robot se metió en el lote «${hit.name}»! En lazo abierto la desviación acumulada lo sacó del camino.`); } }
+      st.vl *= .2; st.vr *= .2; st.bump = true; }
     st.yaw = ny;
   }
   if (chassis) { chassis.tracks[-1].off += st.vl * dt; chassis.tracks[1].off += st.vr * dt; }
@@ -524,11 +566,11 @@ Sim.csv = () => { const cols = ['t', 'state', 'v', 'w', 'i', 'vbat', 'soc', 'pwm
 /* ---------- Banco de pruebas simulado (protocolo P1–P10 del informe) ---------- */
 Sim.runTests = async function (onProgress) {
   const keep = JSON.parse(JSON.stringify({ x: st.x, z: st.z, yaw: st.yaw, soc: st.soc, load: st.load, mode: st.mode, surface: st.surface, bench: st.bench, wifiCut: st.wifiCut }));
-  const keepPath = st.path.slice(), keepRoute = route.map(t => Object.assign({}, t)), keepBatt = S.batteryOn, keepPi = Object.assign({}, pi, { rec: null });
+  const keepPath = st.path.slice(), keepRoute = route.map(t => Object.assign({}, t)), keepBatt = S.batteryOn, keepPi = Object.assign({}, pi, { rec: null, plan: null }), keepCfg = Object.assign({}, st.cfg);
   st.quiet = true; st.testing = true; const res = []; const tick = () => new Promise(r => setTimeout(r, 0));
   const refresh = () => { an = UGV.analyze(st.vbat); anT = .25; };
   const fmt = (v, d = 1) => v.toFixed(d).replace('.', ',');
-  const place = (id, load = 0) => { const m = marksFor(id); st.bench = false; st.load = load; st.testCmd = null; Object.assign(st, { x: m.A[0], z: m.A[1], yaw: m.yaw, vl: 0, vr: 0, bumps: 0, wifiCut: false }); Object.assign(pi, { izq: 0, der: 0, rec: null, frozen: false, boot: 0, on: true, ultima: st.t }); st.path = [[st.x, st.z]]; };
+  const place = (id, load = 0) => { const m = marksFor(id); st.bench = false; st.load = load; st.testCmd = null; pi.plan = null; Object.assign(st, { x: m.A[0], z: m.A[1], yaw: m.yaw, vl: 0, vr: 0, bumps: 0, wifiCut: false }); Object.assign(pi, { izq: 0, der: 0, rec: null, frozen: false, boot: 0, on: true, ultima: st.t }); st.path = [[st.x, st.z]]; };
   const run = async (secs, until) => { const N = Math.round(secs * 60); for (let i = 0; i < N; i++) { step(1 / 60); if (until && until()) return (i + 1) / 60; if (i % 3000 === 0) await tick(); } return secs; };
   const add = (prueba, superficie, carga, resultado, detalle) => res.push({ prueba, superficie, carga, resultado, detalle });
   const vel = .6;
@@ -580,13 +622,20 @@ Sim.runTests = async function (onProgress) {
       await tick();
     }
     st.mode = 'remoto';
+    onProgress && onProgress('Recorrido automático completo por la finca');
+    { st.testCmd = null; st.load = 0; st.wifiCut = false; Sim.auto.posicion(FINCA.inicio); pi.on = true; pi.boot = 0; Sim.auto.calibrar(true); const c0 = st.crops; let maxOff = 0; st.esperarOrden = false;
+      Sim.auto.recorrido(true); const tt = await run(900, () => { maxOff = Math.max(maxOff, LY.pathDist(st.x, st.z)); return !pi.plan; });
+      const arr = st.arrivals.filter(a => a.id !== FINCA.inicio || st.arrivals.length), errs = arr.map(a => `${a.id} ${fmt(a.err, 0)} cm`);
+      add('Automático · recorrido completo por los caminos', 'finca (caminos de tierra)', '0 kg', st.crops - c0 ? `${st.crops - c0} lotes tocados` : '0 cultivos tocados',
+        `${fmt(tt, 0)} s · ${arr.length} llegadas con 1 s de espera · separación máxima del centro del camino ${fmt(maxOff, 0)} cm (el borde de los lotes está a ${LY.PATH_HALF} cm) · error al llegar: ${errs.join(', ')}`);
+      st.mode = 'remoto'; await tick(); }
     onProgress && onProgress('P9 · duración de la batería'); place('firme', 1); st.testCmd = [vel, vel]; await run(3); const ia = st.ibat;
     add('P9 · Duración de la batería (estimada)', 'firme', '1 kg', `≈ ${Math.round(P.capAh * .85 / ia * 60)} min`, `${Math.round(ia * 1000)} mA con la Raspberry Pi y los dos motores al ${Math.round(vel * 100)} %; usa el 85 % de ${P.capAh * 1000} mAh (capacidad supuesta)`);
     onProgress && onProgress('P10 · calentamiento del L298N'); place('firme', 2); st.testCmd = [vel, vel]; await run(3);
     add('P10 · Calentamiento del L298N', 'firme', '2 kg', `≈ ${fmt(st.pl298, 2)} W`, 'potencia que se pierde como calor en el puente H con la caída supuesta; la temperatura se mide en el prototipo');
   } finally {
     st.testCmd = null; S.batteryOn = keepBatt; route = Sim.route = keepRoute;
-    Object.assign(st, keep, { vl: 0, vr: 0, quiet: false, testing: false, jy: 0, jx: 0, held: false }); st.path = keepPath;
+    Object.assign(st, keep, { vl: 0, vr: 0, quiet: false, testing: false, jy: 0, jx: 0, held: false }); st.path = keepPath; st.cfg = keepCfg; drawAutoLine(null);
     Object.assign(pi, keepPi, { izq: 0, der: 0, rec: null, modo: keepPi.on ? 'ESPERA' : keepPi.modo, ultima: st.t });
     refresh(); Sim.setLoad(st.load); planRoute(); UGV.emit('mode', st.mode); UGV.emit('route', route);
   }
@@ -619,8 +668,10 @@ function loop(now) {
     telT -= dt; if (telT <= 0) { telT = .1;
       Object.assign(tel, { v, w, vbat: st.vbat, soc: st.soc, ibat: st.ibat, iL: st.iL, iR: st.iR, dutyL: st.dutyL, dutyR: st.dutyR, mode: st.mode,
         x: st.x, z: st.z, yaw: st.yaw, warnings: an.warnings, okA: driveOK(an, 'A'), okB: driveOK(an, 'B'), load: st.load, mass: Sim.robotMass() + st.load, sf: st.sf,
-        state: pi.frozen ? 'PROGRAMA BLOQUEADO' : pi.modo, piOn: pi.on, frozen: pi.frozen, rec: pi.rec ? { i: pi.rec.i, t: pi.rec.t } : null, wifiCut: st.wifiCut, battery: S.batteryOn !== false,
-        gnd: !!(an.rpiOn && an.net('rpi.GND') === an.net('l298n.GND')), grade: st.grade, soil: st.bench ? 'banco' : st.soil, bench: st.bench, err: st.err, dev: st.dev, routes: st.routes, pl298: st.pl298, cells: 2 });
+        state: pi.frozen ? 'PROGRAMA BLOQUEADO' : pi.modo, piOn: pi.on, pos: pi.pos, rumbo: pi.rumbo, tourI: pi.tourI, crops: st.crops,
+        auto: pi.plan ? { nombre: pi.plan.nombre, nodos: pi.plan.nodos, i: pi.plan.i, hacia: (pi.plan.pasos[pi.plan.i] || {}).hacia || (pi.plan.pasos[pi.plan.i] || {}).llega,
+          destino: (pi.plan.pasos.slice(pi.plan.i + ((pi.plan.pasos[pi.plan.i] || {}).llega !== undefined ? 1 : 0)).find(q => q.llega !== undefined) || {}).llega } : null, frozen: pi.frozen, rec: pi.rec ? { i: pi.rec.i, t: pi.rec.t } : null, wifiCut: st.wifiCut, battery: S.batteryOn !== false,
+        gnd: !!(an.rpiOn && an.net('rpi.GND') === an.net('l298n.GND')), grade: st.grade, soil: st.bench ? 'banco' : SOIL[st.soil].name, bench: st.bench, err: st.err, dev: st.dev, routes: st.routes, pl298: st.pl298, cells: 2 });
       UGV.emit('telemetry', tel); }
   }
   requestAnimationFrame(loop);
