@@ -305,3 +305,12 @@ table.bom tfoot td { border-bottom: 0; padding-top: 10px; }
 .links .lk { font: 600 11px var(--f-mono); padding: 2px 8px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); }
 .links .lk::before { content: "○ "; } .links .lk.on { color: var(--ok); border-color: var(--ok); } .links .lk.on::before { content: "● "; }
 @media (max-width: 720px) { .hud { width: 196px; gap: 5px; padding: 8px 10px; } .hud-main b { font-size: 24px; } .hud .hud-opt { display: none; } .halt-banner { top: auto; bottom: 34px; } }
+/* Editor de tramos del recorrido programado y pestañas del código */
+.tramos { width: 100%; font-size: 12.5px; }
+.tramos th { font-size: 11px; }
+.tramos td { padding: 3px 2px; vertical-align: middle; }
+.tramos td.n { width: 18px; color: var(--muted); }
+.tramos select, .tramos input { width: 100%; min-width: 0; padding: 4px 5px; font: inherit; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); color: var(--fg); }
+.tramos input { max-width: 64px; }
+.tramos input:disabled { opacity: .45; }
+.code-tabs { flex-wrap: wrap; margin: 8px 0 2px; }

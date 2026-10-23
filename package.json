@@ -1,12 +1,14 @@
 {
   "name": "ugv-orugas-web",
-  "version": "3.0.0",
+  "version": "4.0.0",
   "private": true,
-  "description": "Gemelo digital del UGV de orugas de bajo costo para el transporte de la cosecha en fincas (Raspberry Pi + ESP32).",
+  "description": "Gemelo digital del prototipo a escala de vehículo de orugas: la Raspberry Pi 3 controla directamente el L298N (sin ESP32). Incluye el programa real de la Raspberry Pi.",
   "scripts": {
     "start": "python -m http.server 8765",
+    "raspberry": "python raspberry/ugv.py --simular",
+    "empaquetar": "node tools/empaquetar.js",
     "test": "node tests/run.js",
-    "check": "node --check js/data.js && node --check js/state.js && node --check js/models.js && node --check js/sim.js && node --check js/circuit.js && node --check js/catalog.js && node --check js/code.js && node --check js/codepi.js && node --check js/app.js"
+    "check": "node --check js/data.js && node --check js/state.js && node --check js/models.js && node --check js/sim.js && node --check js/circuit.js && node --check js/catalog.js && node --check js/codepi.js && node --check js/app.js && python -m py_compile raspberry/ugv.py"
   },
   "license": "UNLICENSED"
 }

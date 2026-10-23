@@ -1,6 +1,8 @@
 /* Pruebas automáticas sin dependencias: node tests/run.js
-   Cargan el modelo de datos, el análisis eléctrico y los generadores de código en un entorno simulado
-   (sin navegador ni WebGL) y verifican que el cableado del proyecto sea coherente. */
+   1. Cargan el modelo de datos y el análisis eléctrico en un entorno simulado (sin navegador ni WebGL) y verifican
+      que el cableado sea exactamente el del diagrama final (Raspberry Pi → L298N, sin ESP32).
+   2. Verifican que js/codepi.js tenga la misma copia de los archivos de raspberry/.
+   3. Ejecutan las pruebas de extremo a extremo del programa real de la Raspberry Pi (raspberry/test_ugv.py). */
 'use strict';
 const fs = require('fs');
 const path = require('path');
@@ -16,63 +18,74 @@ const ctx = {
 };
 ctx.window = ctx; vm.createContext(ctx);
 const load = f => vm.runInContext(fs.readFileSync(path.join(root, f), 'utf8'), ctx, { filename: f });
-['js/data.js', 'js/state.js', 'js/code.js', 'js/codepi.js'].forEach(load);
+['js/data.js', 'js/state.js', 'js/codepi.js'].forEach(load);
 const UGV = ctx.UGV;
-UGV.Sim = { st: { slip: 1.6 }, mission: () => [{ id: 'A', x: 480, z: 690, tipo: 'carga' }, { id: 'B', x: 480, z: 0, tipo: 'paso' }, { id: 'ACOPIO', x: 1100, z: -1250, tipo: 'acopio' }] };
+UGV.Sim = { st: { vbat: 7.4 } };
 
 let fails = 0, n = 0;
 const ok = (cond, msg) => { n++; if (cond) console.log('  ✓ ' + msg); else { fails++; console.log('  ✗ ' + msg); } };
-const setAll = ids => { Object.keys(UGV.state.on).forEach(k => { UGV.state.on[k] = !!UGV.part(k).on; }); ids.forEach(id => { UGV.state.on[id] = true; }); };
+const S = UGV.state;
+const base = () => { Object.keys(S.on).forEach(k => { S.on[k] = !!UGV.part(k).on; }); S.custom = []; S.removed = []; S.batteryOn = true; S.switchClosed = true; };
 
-console.log('Modelo de piezas');
+console.log('Piezas del diseño final');
 const ids = UGV.PARTS.map(p => p.id);
 ok(new Set(ids).size === ids.length, 'los identificadores de pieza son únicos');
-UGV.WIRES.forEach(w => [w.a, w.b].forEach(k => { if (!UGV.pinInfo(k)) { ok(false, 'el pin ' + k + ' existe'); } }));
+const montadas = UGV.PARTS.filter(p => p.on).map(p => p.id).sort().join(',');
+ok(montadas === 'battery,box,buck,chassis,l298n,motorA,motorB,rpi', 'solo vienen montadas las piezas del diagrama final: ' + montadas);
+ok(!ids.some(id => /esp32|gnss|lora|sonar|imu|enc|cam|estop/.test(id)), 'no quedan piezas retiradas (ESP32, GNSS, LoRa, sensores, cámara, paro)');
+UGV.WIRES.forEach(w => [w.a, w.b].forEach(k => { if (!UGV.pinInfo(k)) ok(false, 'el pin ' + k + ' existe'); }));
 ok(true, `las ${UGV.WIRES.length} conexiones apuntan a pines existentes`);
-['gnss', 'lora', 'estop'].forEach(id => ok(!!UGV.part(id), `existe la pieza ${id}`));
+
+console.log('Conexiones del diagrama final');
+base();
+let an = UGV.analyze(7.4);
+const same = (a, b) => an.net(a) === an.net(b);
+[['G12', 'ENA'], ['G17', 'IN1'], ['G27', 'IN2'], ['G22', 'IN3'], ['G23', 'IN4'], ['G13', 'ENB']].forEach(([g, l]) => ok(same('rpi.' + g, 'l298n.' + l), `Raspberry Pi ${g.replace('G', 'GPIO ')} → L298N ${l}`));
+ok(UGV.SIGNALS.map(s => s[3]).join(',') === '32,11,13,15,16,33', 'pines físicos 32, 11, 13, 15, 16 y 33');
+ok(same('l298n.OUT1', 'motorA.M+') && same('l298n.OUT2', 'motorA.M-') && same('l298n.OUT3', 'motorB.M+') && same('l298n.OUT4', 'motorB.M-'), 'OUT1/OUT2 → motor A y OUT3/OUT4 → motor B');
+ok(same('battery.BAT+', 'l298n.12V') && same('battery.BAT+', 'buck.IN+'), 'baterías (+) → 12V del L298N y entrada del DC-DC');
+ok(same('buck.OUT+', 'rpi.5V'), 'DC-DC 5 V → pin 2 de la Raspberry Pi');
+ok(same('battery.BAT-', 'l298n.GND') && same('l298n.GND', 'rpi.GND') && same('buck.IN-', 'rpi.GND'), 'tierra común: baterías, DC-DC, L298N y Raspberry Pi (pin 6)');
+ok((an.groups[an.net('l298n.5V')] || []).length === 1, 'la salida de 5 V del L298N no se usa');
 
 console.log('Análisis eléctrico');
-setAll([]);
-let an = UGV.analyze(7.4);
-ok(!an.warnings.some(w => w.lvl === 'danger'), 'el montaje actual no tiene cortocircuitos ni tensiones peligrosas');
-ok((an.vAt('rpi.5V') || 0) > 4.9 && an.net('rpi.TX') === an.net('esp32.RX2'), 'en el montaje actual la Raspberry Pi recibe 5 V del DC-DC y está unida a la ESP32 por UART');
-['gnss', 'lora', 'estop'].forEach(id => ok(!UGV.state.on[id], `${id} no viene montado (no está en la gráfica del montaje)`));
-setAll(['buck', 'gnss', 'lora', 'estop', 'sonar', 'divider', 'imu', 'enc', 'cam', 'aruco', 'switch']);
-an = UGV.analyze(11.1);
-ok(!an.warnings.some(w => w.lvl === 'danger'), 'el montaje completo para la finca no tiene peligros eléctricos');
-ok(an.net('rpi.TX') === an.net('esp32.RX2') && an.net('esp32.TX2') === an.net('rpi.RX'), 'la Raspberry Pi y la ESP32 quedan unidas por UART cruzado');
-ok(an.net('rpi.GND') === an.net('esp32.GND'), 'la Raspberry Pi y la ESP32 comparten tierra');
-ok((an.vAt('esp32.VIN') || 0) > 4.9 && (an.vAt('rpi.5V') || 0) > 4.9, 'la ESP32 (por el L298N) y la Raspberry Pi (por el DC-DC) tienen 5 V');
-ok((an.vAt('l298n.12V') || 0) > 10, 'el L298N recibe la tensión de las 3 celdas a través del interruptor y el paro');
-UGV.state.estopPressed = true; an = UGV.analyze(11.1);
-ok((an.vAt('l298n.12V') || 0) === 0, 'con el paro pulsado el L298N queda sin potencia');
-ok((an.vAt('rpi.5V') || 0) > 4.9, 'con el paro pulsado la Raspberry Pi sigue encendida');
-ok(an.warnings.some(w => /también se apaga/.test(w.text)), 'avisa que la ESP32 se apaga con el paro mientras tome 5 V del L298N');
-UGV.state.estopPressed = false;
-setAll(['sonar']); an = UGV.analyze(7.4);
-ok(an.warnings.some(w => /ECHO/.test(w.text)), 'avisa que el ECHO de 5 V del ultrasónico necesita divisor');
+ok(!an.warnings.some(w => w.lvl === 'danger' || w.lvl === 'warn'), 'el montaje final no tiene peligros ni advertencias');
+ok(an.rpiOn && Math.abs(an.vAt('rpi.5V') - 5) < .01 && an.vAt('l298n.12V') === 7.4, 'la Raspberry Pi recibe 5 V y el L298N 7,4 V');
+ok(an.warnings.some(w => /desconectar la batería/.test(w.text)), 'recuerda que el corte total es desconectar la batería');
+S.batteryOn = false; an = UGV.analyze(7.4);
+ok(!an.rpiOn && !an.vAt('l298n.12V'), 'con la batería desconectada no hay energía en ninguna parte');
+base(); S.custom = [{ a: 'l298n.5V', b: 'rpi.G17' }]; an = UGV.analyze(7.4);
+ok(an.warnings.some(w => w.lvl === 'danger' && /solo toleran 3,3 V/.test(w.text)), 'avisa del peligro si llegan 5 V a un GPIO');
+base(); S.removed = ['buck.OUT-~rpi.GND']; an = UGV.analyze(7.4);
+ok(an.warnings.some(w => /no tiene alimentación|no comparten tierra/.test(w.text)), 'avisa si la Raspberry Pi pierde la tierra común');
+base(); S.custom = [{ a: 'l298n.5V', b: 'rpi.5V' }]; S.removed = ['buck.OUT+~rpi.5V']; an = UGV.analyze(7.4);
+ok(an.warnings.some(w => /toma 5 V del L298N/.test(w.text)), 'avisa si la Raspberry Pi se alimenta del 5 V del L298N');
+base(); S.on.switch = true; S.switchClosed = false; an = UGV.analyze(7.4);
+ok(!an.vAt('l298n.12V') && !an.rpiOn, 'el interruptor (trabajo futuro) corta toda la energía');
+base();
 
-console.log('Generadores de código');
-setAll(['buck', 'gnss', 'lora', 'estop', 'sonar', 'divider', 'imu', 'enc']);
-const fw = UGV.genCode();
-ok(fw.missing.length === 0, 'el firmware tiene todas las señales del L298N y el enlace con la Raspberry Pi');
-['PIN_PI_RX = 16', 'PIN_PI_TX = 17', 'PIN_LORA_RX = 18', 'PIN_LORA_TX = 19', 'PIN_TRIG = 23', 'PIN_ECHO = 13', 'PIN_PARO = 5', 'crc16', 'WATCHDOG_MS = 300']
-  .forEach(s => ok(fw.code.includes(s), 'firmware contiene ' + s));
-const opens = (fw.code.match(/{/g) || []).length, closes = (fw.code.match(/}/g) || []).length;
-ok(opens === closes, `firmware con llaves balanceadas (${opens}/${closes})`);
-const py = UGV.genPiCode();
-ok(/def crc16/.test(py) && /class Mision/.test(py), 'el programa de la Raspberry Pi incluye CRC, misión y estimador');
-const mis = JSON.parse(UGV.missionJSON());
-ok(mis.puntos.length === 3 && mis.puntos[0].tipo === 'carga' && mis.puntos[2].tipo === 'acopio', 'la misión exportada tiene punto de carga y acopio');
-const tmp = path.join(require('os').tmpdir(), 'ugv_rpi_test.py');
-fs.writeFileSync(tmp, py);
+console.log('Programa de la Raspberry Pi');
+const { generar, FILES } = require(path.join(root, 'tools', 'empaquetar.js'));
+ok(fs.readFileSync(path.join(root, 'js', 'codepi.js'), 'utf8') === generar(), 'js/codepi.js está al día con raspberry/ (si falla: node tools/empaquetar.js)');
+ok(UGV.PI_FILES.length === FILES.length && UGV.PI_FILES[0].name === 'ugv.py', 'la página incluye los archivos del programa real');
+const py = fs.readFileSync(path.join(root, 'raspberry', 'ugv.py'), 'utf8');
+[['PIN_ENA, PIN_IN1, PIN_IN2 = 12, 17, 27', 'motor A en GPIO 12, 17 y 27'], ['PIN_IN3, PIN_IN4, PIN_ENB = 22, 23, 13', 'motor B en GPIO 22, 23 y 13'],
+ ['"timeout_ms": 800', 'parada sin órdenes a los 800 ms por defecto']].forEach(([s, m]) => ok(py.includes(s), m));
+ok(!/esp32|serial|uart/i.test(py), 'el programa no usa ESP32 ni puerto serie');
+const inst = fs.readFileSync(path.join(root, 'raspberry', 'instalar.sh'), 'utf8');
+ok(inst.includes('dtoverlay=pwm-2chan,pin=12,func=4,pin2=13,func2=4'), 'el instalador activa la PWM por hardware en GPIO 12 y 13');
+let ran = false;
 for (const exe of process.platform === 'win32' ? ['python', 'py'] : ['python3', 'python']) {
-  try { execFileSync(exe, ['-c', 'import ast,sys; ast.parse(open(sys.argv[1], encoding="utf-8").read())', tmp], { stdio: 'pipe' }); ok(true, `el programa Python compila (${exe})`); break; }
-  catch (e) { if (e.code === 'ENOENT') continue; ok(false, 'el programa Python compila: ' + String(e.stderr || e.message).split('\n').slice(-3).join(' ')); break; }
+  try {
+    const out = execFileSync(exe, ['-m', 'unittest', 'raspberry/test_ugv.py'], { cwd: root, stdio: 'pipe', encoding: 'utf8' });
+    ok(true, `pruebas de extremo a extremo del servidor real (${exe}): ${((out.match(/Ran (\d+) tests/) || [])[1]) || 'ok'}`); ran = true; break;
+  } catch (e) {
+    if (e.code === 'ENOENT') continue;
+    const txt = String(e.stderr || '') + String(e.stdout || '');
+    ok(false, 'pruebas del servidor real: ' + txt.split('\n').filter(l => /FAIL|Error|assert/i.test(l)).slice(0, 6).join(' | ')); ran = true; break;
+  }
 }
-// el CRC de JS (pruebas) y el de Python deben coincidir con el valor de referencia de CRC-16/CCITT-FALSE
-const crc = d => { let c = 0xFFFF; for (const b of d) { c ^= b << 8; for (let i = 0; i < 8; i++) c = (c & 0x8000) ? ((c << 1) ^ 0x1021) & 0xFFFF : (c << 1) & 0xFFFF; } return c; };
-ok(crc(Buffer.from('123456789')) === 0x29B1, 'CRC-16/CCITT-FALSE de "123456789" = 0x29B1');
+if (!ran) ok(false, 'hay Python 3 para probar el programa de la Raspberry Pi');
 
 console.log(`\n${n - fails}/${n} comprobaciones correctas`);
 process.exit(fails ? 1 : 0);

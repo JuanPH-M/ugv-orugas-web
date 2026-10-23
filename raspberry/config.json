@@ -1,0 +1,8 @@
+{
+  "puerto": 80,
+  "pwm_hz": 1000,
+  "timeout_ms": 800,
+  "factor_izq": 1.0,
+  "factor_der": 1.0,
+  "toma_control_s": 3.0
+}

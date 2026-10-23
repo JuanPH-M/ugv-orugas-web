@@ -17,5 +17,5 @@ jobs:
           python-version: "3.12"
       - name: Sintaxis de JavaScript
         run: npm run check
-      - name: Modelo, análisis eléctrico y generadores de código
+      - name: Modelo eléctrico y programa de la Raspberry Pi
         run: npm test

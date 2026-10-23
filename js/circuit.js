@@ -98,8 +98,7 @@ function fmtV(v) { return v.toFixed(1).replace('.', ','); }
 function live(t) {
   if (!svg || UGV.activeTab !== 'circ') return;
   const act = { ENA: Math.abs(t.dutyL || 0), ENB: Math.abs(t.dutyR || 0), IN1: (t.dutyL || 0) > 0, IN2: (t.dutyL || 0) < 0, IN3: (t.dutyR || 0) > 0, IN4: (t.dutyR || 0) < 0,
-    MA: Math.abs(t.dutyL || 0) * (t.okA ? 1 : 0), MB: Math.abs(t.dutyR || 0) * (t.okB ? 1 : 0), LUCES: t.lights, BOCINA: t.horn, TRIG: t.sonar, ECHO: t.sonar, I2C: true, ENC: Math.abs(t.v || 0) > .5, CAM: true,
-    UART: t.rpiOK ? .6 : 0, GNSS: t.gnssOK ? .4 : 0, LORA: t.loraOK && !t.linkCut ? .5 : 0, ESTOP: !!S.estopPressed };
+    MA: Math.abs(t.dutyL || 0) * (t.okA ? 1 : 0), MB: Math.abs(t.dutyR || 0) * (t.okB ? 1 : 0) };
   wiresG.querySelectorAll('path.wire').forEach(p => { const s = p.dataset.sig; const a = s ? +act[s] : 0;
     p.classList.toggle('flow', a > .02); if (a > .02) p.style.animationDuration = (1.4 - Math.min(1, a) * 1.1).toFixed(2) + 's'; });
   const set = (id, txt) => { const e = nodesG.querySelector(`[data-live="${id}"]`); if (e) e.textContent = txt; };
@@ -108,17 +107,9 @@ function live(t) {
     set('l298n', `A: ${Math.round(Math.abs(t.dutyL) * 255)}  B: ${Math.round(Math.abs(t.dutyR) * 255)} (PWM)`);
     set('motorA', t.okA ? (t.dutyL ? `${t.dutyL > 0 ? 'adelante' : 'atrás'} ${Math.round(Math.abs(t.dutyL) * 100)} %` : 'detenido') : 'sin señal');
     set('motorB', t.okB ? (t.dutyR ? `${t.dutyR > 0 ? 'adelante' : 'atrás'} ${Math.round(Math.abs(t.dutyR) * 100)} %` : 'detenido') : 'sin señal');
-    set('esp32', t.rpiOK ? 'UART2 con la Raspberry Pi' : 'WiFi de respaldo 192.168.4.1');
-    set('sonar', t.sonar ? (t.dist === null ? '> 400 cm' : Math.round(t.dist) + ' cm') : 'sin lectura');
-    set('leds', t.lights ? 'encendidas' : 'apagadas'); set('buzzer', t.horn ? 'sonando' : 'en silencio');
-    set('rpi', an && (an.vAt('rpi.5V') || 0) > 4.5 ? (t.rpiOK ? 'unidad central · ' + (t.state || '').toLowerCase() : 'encendida, sin UART') : 'sin alimentación');
-    set('gnss', t.gnss ? `${t.gnss.rtk ? 'RTK' : 'autónomo'} ±${Math.round(t.gnss.sigma)} cm` : 'sin datos');
-    set('lora', t.loraOK ? (t.linkCut ? 'enlace cortado' : 'enlazada con el operador') : 'sin conexión');
-    set('estop', S.estopPressed ? 'PULSADO · motores sin potencia' : 'liberado');
-    set('cam', t.seen && t.seen.length ? 've ID ' + t.seen.map(m => m.id).join(', ') : 'sin marcadores');
-    set('imu', `giro ${Math.round((t.w || 0) * 57.3)} °/s`); set('enc', t.est ? 'contando' : '');
-    set('switch', S.switchClosed ? 'encendido' : 'apagado'); set('buck', an && (an.vAt('buck.OUT+') || 0) > 4 ? '5,1 V' : 'sin entrada');
-    set('divider', an && an.vAt('divider.OUT') !== null ? fmtV(an.vAt('divider.OUT')) + ' V' : '');
+    set('rpi', t.piOn ? (t.frozen ? 'programa bloqueado' : (t.state || '').toLowerCase()) : (t.battery === false ? 'apagada (batería desconectada)' : 'sin alimentación'));
+    set('buck', an && (an.vAt('buck.OUT+') || 0) > 4 ? '5 V' : 'sin entrada');
+    set('switch', S.switchClosed ? 'encendido' : 'apagado');
   }
   renderBudget(t);
 }
@@ -159,11 +150,9 @@ function inspect() {
       <div class="tbl-wrap"><table><thead><tr><th>Pin</th><th>Conectado a</th><th>Tensión</th></tr></thead><tbody>${rows}</tbody></table></div>
       <div class="row">${p.core ? '' : `<button class="btn small" id="tglPart">${UGV.isOn(p.id) ? 'Quitar del robot' : 'Agregar al robot'}</button>`}
       ${p.id === 'switch' ? `<button class="btn small" id="tglSw">${S.switchClosed ? 'Apagar interruptor' : 'Encender interruptor'}</button>` : ''}
-      ${p.id === 'estop' ? `<button class="btn small" id="tglEs">${S.estopPressed ? 'Soltar el paro' : 'Pulsar el paro'}</button>` : ''}
       <button class="btn small" id="seeCat">Ver ficha</button></div>`;
     const tg = box.querySelector('#tglPart'); if (tg) tg.onclick = () => UGV.setOn(p.id, !UGV.isOn(p.id));
     const sw = box.querySelector('#tglSw'); if (sw) sw.onclick = () => { S.switchClosed = !S.switchClosed; UGV.save(); UGV.emit('wires'); };
-    const es = box.querySelector('#tglEs'); if (es) es.onclick = () => UGV.Sim.setEstop(!S.estopPressed);
     box.querySelector('#seeCat').onclick = () => UGV.openPart(p.id);
     return;
   }
@@ -181,19 +170,15 @@ function renderWarnings() {
 
 function renderBudget(t) {
   const box = el.budget; if (!box || t.vbat === undefined) return;
-  const on5 = an && ((an.vAt('l298n.5V') || 0) > 4 || (an.vAt('buck.OUT+') || 0) > 4), espOn = an && (an.vAt('esp32.VIN') || 0) >= 4.5;
   const items = [
-    ['Motor A', Math.abs(t.dutyL) > .01 && t.okA ? .1 + .9 * Math.abs(t.dutyL) : 0],
-    ['Motor B', Math.abs(t.dutyR) > .01 && t.okB ? .1 + .9 * Math.abs(t.dutyR) : 0],
-    ['ESP32', espOn && UGV.isOn('esp32') ? .12 : 0],
-    ['Raspberry Pi 3 + GNSS (vía DC-DC)', an && (an.vAt('rpi.5V') || 0) > 4.5 ? (.65 + (t.gnssOK ? .05 : 0)) * 5.1 / (Math.max(1, t.vbat) * .88) : 0],
-    ['Radio LoRa', on5 && t.loraOK ? .03 : 0],
-    ['Sensores y luces', on5 ? (UGV.isOn('sonar') ? .015 : 0) + (t.lights && UGV.isOn('leds') ? .03 : 0) + (t.horn && UGV.isOn('buzzer') ? .03 : 0) + (UGV.isOn('imu') ? .004 : 0) + (UGV.isOn('enc') ? .02 : 0) : 0]
+    ['Motor A', t.iL || 0],
+    ['Motor B', t.iR || 0],
+    ['Raspberry Pi (vía DC-DC)', an && an.rpiOn ? UGV.Sim.P.irpi * 5 / (Math.max(1, t.vbat) * .88) : 0]
   ];
   const tot = t.ibat, rem = UGV.Sim.P.capAh * t.soc, mins = tot > .005 ? rem / tot * 60 : Infinity;
   box.innerHTML = `<table><tbody>${items.map(([n, a]) => `<tr><td>${n}</td><td class="mono r">${(a * 1000).toFixed(0)} mA</td></tr>`).join('')}
     <tr class="tot"><td>Total desde la batería</td><td class="mono r">${(tot * 1000).toFixed(0)} mA</td></tr></tbody></table>
-    <p class="muted small">Autonomía al ritmo actual: <b>${isFinite(mins) ? (mins > 600 ? '> 10 h' : Math.round(mins) + ' min') : '—'}</b> con ${Math.round(t.soc * 100)} % de carga (2600 mAh, ${t.cells || 2} celdas en serie).</p>`;
+    <p class="muted small">Autonomía al ritmo actual: <b>${isFinite(mins) ? (mins > 600 ? '> 10 h' : Math.round(mins) + ' min') : '—'}</b> con ${Math.round(t.soc * 100)} % de carga (2600 mAh supuestos, 2 celdas en serie).</p>`;
 }
 
 /* ---------- Paleta ---------- */
@@ -201,8 +186,8 @@ function renderPalette() {
   const box = el.palette; if (!box) return;
   const item = p => `<div class="pal ${UGV.isOn(p.id) ? 'on' : ''}"><span class="dot c-${p.cat}"></span><span class="nm">${esc(p.name)}${p.need && !UGV.isOn(p.id) ? '<span class="pill need">falta</span>' : ''}</span>
     ${p.core ? '<span class="pill">base</span>' : `<button class="btn tiny" data-id="${p.id}">${UGV.isOn(p.id) ? 'Quitar' : 'Agregar'}</button>`}</div>`;
-  const parts = UGV.PARTS.filter(p => p.sch || p.id === 'aruco');
-  box.innerHTML = `<p class="sec-label">En el robot</p>${parts.filter(p => UGV.isOn(p.id)).map(item).join('')}<p class="sec-label">Disponibles para agregar</p>${parts.filter(p => !UGV.isOn(p.id)).map(item).join('') || '<p class="muted small">Todas las piezas están montadas.</p>'}`;
+  const parts = UGV.PARTS.filter(p => p.sch);
+  box.innerHTML = `<p class="sec-label">En el robot</p>${parts.filter(p => UGV.isOn(p.id)).map(item).join('')}<p class="sec-label">Recomendadas a futuro</p>${parts.filter(p => !UGV.isOn(p.id)).map(item).join('') || '<p class="muted small">No hay más piezas.</p>'}`;
   box.querySelectorAll('button[data-id]').forEach(b => b.onclick = () => { const id = b.dataset.id; UGV.setOn(id, !UGV.isOn(id)); if (UGV.isOn(id)) { selPart = id; selWire = null; render(); centerOn(id); } });
 }
 

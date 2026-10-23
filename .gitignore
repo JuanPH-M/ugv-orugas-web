@@ -5,3 +5,5 @@ __pycache__/
 .DS_Store
 Thumbs.db
 ~$*
+raspberry/recorridos.json
+raspberry/registros/

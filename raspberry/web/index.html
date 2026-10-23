@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#14171a">
+<title>UGV de orugas · control</title>
+<style>
+:root { --bg: #f3f1ea; --panel: #fff; --fg: #1b1d1f; --muted: #6b6f74; --line: #d9d6cc; --accent: #1f9a6c; --stop: #c8261d; --warn: #c98a0c; --r: 14px; }
+@media (prefers-color-scheme: dark) { :root { --bg: #121416; --panel: #1c1f22; --fg: #eceae4; --muted: #9aa0a6; --line: #30343a; --accent: #2fbf87; } }
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; padding: 0 0 96px; }
+header { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 10px; padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
+header h1 { font-size: 16px; margin: 0; flex: 1; }
+.pill { font: 600 12px ui-monospace, monospace; padding: 4px 10px; border-radius: 99px; border: 1px solid var(--line); white-space: nowrap; }
+.pill.ok { color: var(--accent); border-color: var(--accent); } .pill.bad { color: var(--stop); border-color: var(--stop); } .pill.run { background: var(--accent); color: #fff; border-color: var(--accent); }
+main { max-width: 560px; margin: 0 auto; padding: 12px 16px; display: grid; gap: 12px; }
+section { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 12px; }
+h2 { font-size: 14px; margin: 0 0 8px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.aviso { display: none; padding: 10px 12px; border-radius: 10px; background: color-mix(in srgb, var(--warn) 18%, var(--panel)); border: 1px solid var(--warn); font-size: 14px; }
+.aviso.show { display: block; }
+.pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; max-width: 330px; margin: 4px auto 10px; touch-action: none; user-select: none; -webkit-user-select: none; }
+.pad button { aspect-ratio: 1; font-size: 34px; border-radius: 18px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); touch-action: none; }
+.pad button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+.pad .alto { font-size: 15px; font-weight: 700; background: var(--stop); color: #fff; border-color: var(--stop); }
+.pad .vacio { visibility: hidden; }
+label { display: block; font-size: 13px; color: var(--muted); margin: 6px 0 4px; }
+input[type=range] { width: 100%; accent-color: var(--accent); }
+.fila { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.fila > * { flex: 1 1 auto; }
+button.b { padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); font: 600 14px inherit; font-family: inherit; }
+button.b.go { background: var(--accent); color: #fff; border-color: var(--accent); }
+select, input[type=number], input[type=text] { width: 100%; padding: 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); font: inherit; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+td, th { padding: 4px 3px; text-align: left; vertical-align: middle; } th { font-size: 12px; color: var(--muted); font-weight: 600; }
+td.n { width: 22px; color: var(--muted); font: 12px ui-monospace, monospace; } td.x { width: 34px; }
+tr.cur td { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.barras { display: grid; grid-template-columns: auto 1fr 44px; gap: 6px 8px; align-items: center; font-size: 13px; }
+.barra { height: 10px; background: var(--bg); border: 1px solid var(--line); border-radius: 99px; position: relative; overflow: hidden; }
+.barra i { position: absolute; top: 0; bottom: 0; background: var(--accent); }
+.mono { font-family: ui-monospace, monospace; font-size: 12.5px; }
+.reg { max-height: 180px; overflow: auto; font: 12px/1.5 ui-monospace, monospace; color: var(--muted); }
+.parar { position: fixed; left: 16px; right: 16px; bottom: max(14px, env(safe-area-inset-bottom)); z-index: 4; padding: 18px; border: 0; border-radius: 16px; background: var(--stop); color: #fff; font: 800 20px inherit; font-family: inherit; letter-spacing: .08em; box-shadow: 0 6px 20px rgba(0,0,0,.25); max-width: 528px; margin: 0 auto; }
+.toast { position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%); background: var(--fg); color: var(--bg); padding: 8px 14px; border-radius: 10px; font-size: 14px; opacity: 0; transition: opacity .2s; pointer-events: none; max-width: 90vw; z-index: 5; }
+.toast.show { opacity: 1; }
+small { color: var(--muted); }
+</style>
+</head>
+<body>
+<header><h1>UGV de orugas</h1><span class="pill" id="conn">conectando…</span><span class="pill" id="modo">—</span></header>
+<main>
+  <div class="aviso" id="aviso"></div>
+
+  <section>
+    <h2>Control remoto</h2>
+    <div class="pad" id="pad">
+      <span class="vacio"></span><button data-d="adelante" aria-label="Avanzar">▲</button><span class="vacio"></span>
+      <button data-d="izquierda" aria-label="Girar a la izquierda">◀</button><button class="alto" data-d="alto">ALTO</button><button data-d="derecha" aria-label="Girar a la derecha">▶</button>
+      <span class="vacio"></span><button data-d="atras" aria-label="Retroceder">▼</button><span class="vacio"></span>
+    </div>
+    <label for="vel">Velocidad máxima: <b id="velTxt">60 %</b></label>
+    <input type="range" id="vel" min="20" max="100" step="5" value="60">
+    <div class="barras" style="margin-top:10px">
+      <span>Motor A (izq.)</span><div class="barra"><i id="bA"></i></div><span class="mono" id="vA">0</span>
+      <span>Motor B (der.)</span><div class="barra"><i id="bB"></i></div><span class="mono" id="vB">0</span>
+    </div>
+    <p><small>Mantén pulsada una flecha para moverte; al soltarla el vehículo se detiene. Si el celular deja de enviar órdenes durante <span id="tmo">800</span> ms, la Raspberry Pi detiene los motores. En un computador también sirven las flechas del teclado y la barra espaciadora.</small></p>
+  </section>
+
+  <section>
+    <h2>Recorrido programado</h2>
+    <div class="fila"><select id="lista" aria-label="Recorridos guardados"></select><button class="b" id="bCargar">Abrir</button></div>
+    <table style="margin-top:8px"><thead><tr><th></th><th>Tramo</th><th>Vel. %</th><th>Dur. s</th><th></th></tr></thead><tbody id="tramos"></tbody></table>
+    <p class="mono" id="total"></p>
+    <div class="fila"><button class="b" id="bAgregar">+ Tramo</button><button class="b" id="bGuardar">Guardar</button><button class="b" id="bBorrar">Borrar</button></div>
+    <div class="fila" style="margin-top:8px"><button class="b go" id="bEjecutar">▶ Ejecutar recorrido</button></div>
+    <div class="fila" style="margin-top:8px"><button class="b" id="bExportar">Exportar JSON</button><button class="b" id="bImportar">Importar JSON</button><input type="file" id="archivo" accept="application/json,.json" hidden></div>
+    <p><small>El vehículo cumple cada tramo durante el tiempo indicado, sin medir su posición (lazo abierto). Mientras se ejecuta, esta página debe seguir abierta: si se cierra o se pierde el Wi-Fi, el vehículo se detiene.</small></p>
+  </section>
+
+  <section>
+    <h2>Datos de la prueba</h2>
+    <div class="fila">
+      <div><label for="pCod">Prueba</label><select id="pCod"><option></option><option>P1</option><option>P2</option><option>P3</option><option>P4</option><option>P5</option><option>P6</option><option>P7</option><option>P8</option><option>P9</option><option>P10</option></select></div>
+      <div><label for="pSup">Superficie</label><select id="pSup"><option></option><option>banco</option><option>firme</option><option>tierra</option><option>arena</option><option>rampa</option></select></div>
+      <div><label for="pCar">Carga (kg)</label><select id="pCar"><option></option><option>0</option><option>1</option><option>2</option></select></div>
+    </div>
+    <div class="fila" style="margin-top:8px"><button class="b" id="bPrueba">Anotar en el registro</button><button class="b" id="bCsv">Descargar registro (CSV)</button></div>
+  </section>
+
+  <section>
+    <h2>Registro</h2>
+    <div class="reg" id="reg"></div>
+    <p class="mono" id="info"></p>
+  </section>
+</main>
+<button class="parar" id="parar">PARAR</button>
+<div class="toast" id="toast"></div>
+
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const CLIENTE = (() => { try { let c = sessionStorage.getItem('ugv-cliente'); if (!c) { c = Math.random().toString(36).slice(2, 12); sessionStorage.setItem('ugv-cliente', c); } return c; } catch (_) { return Math.random().toString(36).slice(2, 12); } })();
+const TIPOS = { avanzar: 'Avanzar', retroceder: 'Retroceder', izquierda: 'Girar a la izq.', derecha: 'Girar a la der.', pausa: 'Pausa' };
+const DIR = { adelante: [1, 1], atras: [-1, -1], izquierda: [-1, 1], derecha: [1, -1] };
+let est = null, held = null, holdT = null, toastT = null;
+
+function toast(t) { const e = $('toast'); e.textContent = t; e.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => e.classList.remove('show'), 2600); }
+async function api(path, body, method = 'POST') {
+  const r = await fetch(path, { method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(Object.assign({ cliente: CLIENTE }, body)) : undefined, keepalive: true, cache: 'no-store' });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || 'Error ' + r.status);
+  return d;
+}
+
+/* ---------- control remoto: mantener pulsado ---------- */
+function enviar() {
+  if (!held) return;
+  const v = +$('vel').value, [a, b] = DIR[held];
+  api('/api/mover', { izq: a * v, der: b * v }).then(pintar).catch(e => { soltar(false); toast(e.message); });
+}
+function pulsar(d) {
+  if (d === 'alto') { parar(); return; }
+  if (held === d) return;
+  held = d; marcar(); enviar(); clearInterval(holdT); holdT = setInterval(enviar, 100);
+}
+function soltar(mandarParar = true) {
+  if (!held) return;
+  held = null; marcar(); clearInterval(holdT);
+  if (mandarParar) api('/api/parar', {}).then(pintar).catch(() => { });
+}
+function parar() { held = null; marcar(); clearInterval(holdT); api('/api/parar', {}).then(pintar).catch(e => toast(e.message)); }
+function marcar() { document.querySelectorAll('#pad button').forEach(b => b.classList.toggle('on', b.dataset.d === held)); }
+document.querySelectorAll('#pad button').forEach(b => {
+  b.addEventListener('pointerdown', e => { e.preventDefault(); b.setPointerCapture(e.pointerId); pulsar(b.dataset.d); });
+  ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(ev => b.addEventListener(ev, () => { if (held === b.dataset.d) soltar(); }));
+  b.addEventListener('contextmenu', e => e.preventDefault());
+});
+const TECLAS = { ArrowUp: 'adelante', w: 'adelante', ArrowDown: 'atras', s: 'atras', ArrowLeft: 'izquierda', a: 'izquierda', ArrowRight: 'derecha', d: 'derecha' };
+addEventListener('keydown', e => { if (/INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return; if (e.key === ' ') { e.preventDefault(); parar(); return; }
+  const d = TECLAS[e.key]; if (d && !e.repeat) { e.preventDefault(); pulsar(d); } });
+addEventListener('keyup', e => { if (TECLAS[e.key] && held === TECLAS[e.key]) soltar(); });
+document.addEventListener('visibilitychange', () => { if (document.hidden) soltar(); });
+addEventListener('blur', () => soltar());
+$('parar').addEventListener('click', parar);
+$('vel').addEventListener('input', e => { $('velTxt').textContent = e.target.value + ' %'; });
+
+/* ---------- estado ---------- */
+function barra(el, v) { el.style.left = (v < 0 ? 50 + v / 2 : 50) + '%'; el.style.width = Math.abs(v) / 2 + '%'; }
+function pintar(d) {
+  est = d; const m = $('modo'); m.textContent = d.modo; m.className = 'pill ' + (d.modo.startsWith('DETENIDO') ? 'bad' : d.modo === 'ESPERA' ? '' : 'run');
+  barra($('bA'), d.izq); barra($('bB'), d.der); $('vA').textContent = d.izq; $('vB').textContent = d.der; $('tmo').textContent = d.timeout_ms;
+  const av = $('aviso'); let txt = '';
+  if (d.modo.startsWith('DETENIDO')) txt = 'El vehículo se detuvo porque dejaron de llegar órdenes. Vuelve a pulsar una flecha para continuar.';
+  else if (d.recorrido) txt = `Recorrido «${d.recorrido.nombre}»: tramo ${d.recorrido.tramo} de ${d.recorrido.total} (${TIPOS[d.recorrido.tipo]}), faltan ${d.recorrido.restante_s.toFixed(1)} s.` + (d.tienes_control ? '' : ' Lo maneja otro dispositivo.');
+  av.textContent = txt; av.classList.toggle('show', !!txt);
+  $('info').textContent = `PWM ${d.pwm} · versión ${d.version}`;
+  const i = d.recorrido && d.tienes_control ? d.recorrido.tramo - 1 : -1;
+  document.querySelectorAll('#tramos tr').forEach((tr, k) => tr.classList.toggle('cur', k === i));
+}
+let fallos = 0;
+async function consultar() {
+  try { const r = await fetch('/api/estado?cliente=' + CLIENTE, { cache: 'no-store' }); pintar(await r.json()); fallos = 0; $('conn').textContent = 'conectado'; $('conn').className = 'pill ok'; }
+  catch (_) { if (++fallos > 1) { $('conn').textContent = 'sin conexión'; $('conn').className = 'pill bad'; } }
+}
+setInterval(consultar, 300); consultar();
+// latido mientras corre un recorrido iniciado desde este dispositivo
+function latir() { if (est && est.recorrido && est.tienes_control) api('/api/latido', {}).then(d => { if (!d.recorrido) pintar(d); }).catch(() => { }); }
+setInterval(latir, 100);
+
+/* ---------- recorridos ---------- */
+let guardados = {};
+function fila(t = { tipo: 'avanzar', velocidad: 60, duracion: 2 }) {
+  const tr = document.createElement('tr');
+  tr.innerHTML = `<td class="n"></td><td><select>${Object.entries(TIPOS).map(([k, v]) => `<option value="${k}" ${k === t.tipo ? 'selected' : ''}>${v}</option>`).join('')}</select></td>
+    <td><input type="number" min="0" max="100" step="5" value="${t.velocidad}" inputmode="numeric"></td><td><input type="number" min="0.1" max="60" step="0.1" value="${t.duracion}" inputmode="decimal"></td>
+    <td class="x"><button class="b" title="Quitar tramo">✕</button></td>`;
+  const sel = tr.querySelector('select'), vel = tr.querySelector('input');
+  const sync = () => { vel.disabled = sel.value === 'pausa'; if (vel.disabled) vel.value = 0; total(); };
+  sel.addEventListener('change', sync); tr.querySelectorAll('input').forEach(i => i.addEventListener('input', total));
+  tr.querySelector('button').addEventListener('click', () => { tr.remove(); total(); });
+  $('tramos').appendChild(tr); sync();
+}
+function leer() { return [...$('tramos').querySelectorAll('tr')].map(tr => { const [vel, dur] = tr.querySelectorAll('input'); return { tipo: tr.querySelector('select').value, velocidad: +vel.value, duracion: +dur.value }; }); }
+function mostrar(tramos) { $('tramos').innerHTML = ''; tramos.forEach(fila); total(); }
+function total() { const t = leer(); document.querySelectorAll('#tramos td.n').forEach((td, i) => td.textContent = i + 1);
+  $('total').textContent = `${t.length} tramos · ${t.reduce((s, x) => s + (+x.duracion || 0), 0).toFixed(1)} s en total`; }
+async function listar(sel) {
+  guardados = await (await fetch('/api/recorridos', { cache: 'no-store' })).json();
+  $('lista').innerHTML = Object.keys(guardados).map(n => `<option>${n.replace(/</g, '&lt;')}</option>`).join('');
+  if (sel) $('lista').value = sel;
+}
+$('bCargar').addEventListener('click', () => { const n = $('lista').value; if (guardados[n]) mostrar(guardados[n]); });
+$('bAgregar').addEventListener('click', () => { fila(); total(); });
+$('bGuardar').addEventListener('click', async () => { const n = prompt('Nombre del recorrido:', $('lista').value || 'A-B-C'); if (!n) return;
+  try { await api('/api/recorridos', { nombre: n.trim(), tramos: leer() }); await listar(n.trim()); toast('Recorrido guardado.'); } catch (e) { toast(e.message); } });
+$('bBorrar').addEventListener('click', async () => { const n = $('lista').value; if (!n || !confirm(`¿Borrar el recorrido «${n}»?`)) return;
+  try { await api('/api/recorridos/' + encodeURIComponent(n), null, 'DELETE'); await listar(); toast('Recorrido borrado.'); } catch (e) { toast(e.message); } });
+$('bEjecutar').addEventListener('click', async () => { soltar(false);
+  try { pintar(await api('/api/ejecutar', { nombre: $('lista').value || 'sin nombre', tramos: leer() })); latir(); toast('Recorrido iniciado.'); } catch (e) { toast(e.message); } });
+$('bExportar').addEventListener('click', () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify({ nombre: $('lista').value || 'recorrido', tramos: leer() }, null, 2)], { type: 'application/json' }));
+  a.download = ($('lista').value || 'recorrido') + '.json'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); });
+$('bImportar').addEventListener('click', () => $('archivo').click());
+$('archivo').addEventListener('change', async e => { const f = e.target.files[0]; if (!f) return;
+  try { const d = JSON.parse(await f.text()); mostrar(Array.isArray(d) ? d : d.tramos); toast('Recorrido importado: revísalo y guárdalo.'); } catch (_) { toast('El archivo no es un recorrido válido.'); } e.target.value = ''; });
+
+/* ---------- prueba y registro ---------- */
+$('bPrueba').addEventListener('click', () => api('/api/prueba', { codigo: $('pCod').value, superficie: $('pSup').value, carga_kg: $('pCar').value }).then(() => toast('Datos de la prueba anotados.')).catch(e => toast(e.message)));
+$('bCsv').addEventListener('click', () => { location.href = '/registro.csv'; });
+async function registro() {
+  try { const r = await (await fetch('/api/registro?n=25', { cache: 'no-store' })).json();
+    $('reg').innerHTML = r.slice().reverse().map(x => `${x.fecha_hora.slice(11, 23)} · ${x.evento}${x.izq || x.der ? ` (${x.izq}, ${x.der})` : ''}`.replace(/</g, '&lt;')).join('<br>'); } catch (_) { }
+}
+setInterval(registro, 1500); registro();
+
+listar().then(() => { const n = $('lista').value; mostrar(guardados[n] || [{ tipo: 'avanzar', velocidad: 60, duracion: 2 }]); });
+</script>
+</body>
+</html>

@@ -17,14 +17,9 @@ function studio(renderer) {
 }
 function modelFor(id) {
   if (id === 'chassis') { const c = UGV.buildChassis(); return c.group; }
-  if (id === 'aruco') { const g = new T.Group(); const m = new T.Mesh(new T.PlaneGeometry(10, 10), new T.MeshStandardMaterial({ map: UGV.tex(120, 120, (c) => { c.fillStyle = '#fff'; c.fillRect(0, 0, 120, 120); c.fillStyle = '#000'; c.fillRect(10, 10, 100, 100); c.fillStyle = '#fff'; [[0, 1], [1, 3], [2, 0], [2, 2], [3, 1], [3, 3], [1, 0]].forEach(([r, k]) => c.fillRect(30 + k * 15, 30 + r * 15, 15, 15)); }) }));
-    m.rotation.x = -Math.PI / 2; m.position.y = .05; m.receiveShadow = true; g.add(m); return g; }
   const r = UGV.build(id); if (!r) return null;
   const g = new T.Group(); g.add(r.g);
   if (id === 'motorA' || id === 'motorB') { g.position.y = 0; r.g.position.y = 1.7; }
-  if (id === 'enc') { r.g.position.set(0, -UGV.GEOM.YC + 1.6, 0); r.g.rotation.y = 0; }
-  if (id === 'leds') r.g.position.y = .4;
-  if (id === 'lora') r.g.position.y = .2;
   return g;
 }
 function frame(cam, obj, dist = 1.9) {

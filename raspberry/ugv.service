@@ -1,0 +1,18 @@
+[Unit]
+Description=Control del UGV de orugas (Raspberry Pi 3 + L298N)
+After=NetworkManager.service
+Wants=NetworkManager.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/ugv
+ExecStart=/usr/bin/python3 /opt/ugv/ugv.py
+# Si el programa falla, se reinicia y lo primero que hace es poner los motores en cero.
+Restart=on-failure
+RestartSec=2
+KillSignal=SIGTERM
+TimeoutStopSec=5
+User=root
+
+[Install]
+WantedBy=multi-user.target
