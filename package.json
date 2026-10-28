@@ -1,0 +1,14 @@
+{
+  "name": "ugv-orugas-web",
+  "version": "4.0.0",
+  "private": true,
+  "description": "Gemelo digital del prototipo a escala de vehículo de orugas: la Raspberry Pi 3 controla directamente el L298N (sin ESP32). Incluye el programa real de la Raspberry Pi.",
+  "scripts": {
+    "start": "python -m http.server 8765",
+    "raspberry": "python raspberry/ugv.py --simular",
+    "empaquetar": "node tools/empaquetar.js",
+    "test": "node tests/run.js",
+    "check": "node --check js/data.js && node --check js/state.js && node --check js/models.js && node --check js/auto.js && node --check js/finca3d.js && node --check js/sim.js && node --check js/circuit.js && node --check js/catalog.js && node --check js/codepi.js && node --check js/app.js && python -m py_compile raspberry/ugv.py"
+  },
+  "license": "UNLICENSED"
+}

@@ -1,0 +1,28 @@
+{
+  "descripcion": "Mapa de la finca en centímetros: x hacia el este, y hacia el norte, rumbo en grados (0 = este, 90 = norte). El robot solo circula por los caminos; los lotes son cultivos que nunca debe pisar. Mide tu terreno y cambia estos valores.",
+  "inicio": "PUESTO",
+  "rumbo_inicial": 90,
+  "margen_cm": 60,
+  "orden": ["A", "B", "C", "D", "ALMACEN"],
+  "puntos": {
+    "PUESTO": { "x": -450, "y": -420, "nombre": "Puesto del robot", "tipo": "puesto" },
+    "J1": { "x": -450, "y": 0, "nombre": "Cruce oeste", "tipo": "cruce" },
+    "A": { "x": -450, "y": 420, "nombre": "Esquina del cafetal", "tipo": "punto" },
+    "J2": { "x": -50, "y": 0, "nombre": "Cruce central", "tipo": "cruce" },
+    "B": { "x": -50, "y": 420, "nombre": "Entre café y plátano", "tipo": "punto" },
+    "J3": { "x": 350, "y": 0, "nombre": "Cruce este", "tipo": "cruce" },
+    "C": { "x": 350, "y": 420, "nombre": "Entre plátano y maíz", "tipo": "punto" },
+    "D": { "x": 760, "y": 0, "nombre": "Final del camino del maizal", "tipo": "punto" },
+    "ALMACEN": { "x": 350, "y": -330, "nombre": "Almacén de la cosecha", "tipo": "almacen" }
+  },
+  "caminos": [
+    ["PUESTO", "J1"], ["J1", "A"], ["J1", "J2"], ["J2", "B"], ["J2", "J3"],
+    ["J3", "C"], ["J3", "D"], ["J3", "ALMACEN"], ["A", "B"], ["B", "C"]
+  ],
+  "lotes": [
+    { "nombre": "Cafetal", "cultivo": "cafe", "x0": -370, "x1": -130, "y0": 80, "y1": 340 },
+    { "nombre": "Platanera", "cultivo": "platano", "x0": 30, "x1": 270, "y0": 80, "y1": 340 },
+    { "nombre": "Maizal", "cultivo": "maiz", "x0": 430, "x1": 780, "y0": 80, "y1": 340 },
+    { "nombre": "Huerta (yuca y fríjol)", "cultivo": "huerta", "x0": -310, "x1": 270, "y0": -360, "y1": -80 }
+  ]
+}

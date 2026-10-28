@@ -1,0 +1,609 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#14171a">
+<title>UGV de orugas · control</title>
+<style>
+:root { --bg: #f3f1ea; --panel: #fff; --fg: #1b1d1f; --muted: #6b6f74; --line: #d9d6cc; --accent: #1f9a6c; --stop: #c8261d; --warn: #c98a0c; --blue: #2d4fb8; --r: 14px; }
+@media (prefers-color-scheme: dark) { :root { --bg: #121416; --panel: #1c1f22; --fg: #eceae4; --muted: #9aa0a6; --line: #30343a; --accent: #2fbf87; --blue: #6f8cff; } }
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; padding: 0 0 100px; }
+header { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 6px; padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+header h1 { font-size: 16px; margin: 0; flex: 1; min-width: 120px; }
+.pill { font: 600 11.5px ui-monospace, monospace; padding: 4px 9px; border-radius: 99px; border: 1px solid var(--line); white-space: nowrap; }
+.pill.ok { color: var(--accent); border-color: var(--accent); } .pill.bad { color: var(--stop); border-color: var(--stop); } .pill.run { background: var(--accent); color: #fff; border-color: var(--accent); } .pill.warn { color: var(--warn); border-color: var(--warn); }
+main { max-width: 620px; margin: 0 auto; padding: 12px 16px; display: grid; gap: 12px; }
+section { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 12px; min-width: 0; }
+h2 { font-size: 13.5px; margin: 0 0 8px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+h3 { font-size: 14px; margin: 12px 0 6px; }
+.aviso { padding: 10px 12px; border-radius: 10px; background: color-mix(in srgb, var(--warn) 18%, var(--panel)); border: 1px solid var(--warn); font-size: 14px; }
+.aviso.peligro { background: color-mix(in srgb, var(--stop) 16%, var(--panel)); border-color: var(--stop); }
+[hidden] { display: none !important; }
+.pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; max-width: 300px; margin: 4px auto 10px; touch-action: none; user-select: none; -webkit-user-select: none; }
+.pad button { aspect-ratio: 1; font-size: 32px; border-radius: 18px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); touch-action: none; }
+.pad button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+.pad .alto { font-size: 15px; font-weight: 700; background: var(--stop); color: #fff; border-color: var(--stop); }
+.pad .vacio { visibility: hidden; }
+.pad.off { opacity: .4; pointer-events: none; }
+label { display: block; font-size: 13px; color: var(--muted); margin: 6px 0 4px; }
+input[type=range] { width: 100%; accent-color: var(--accent); }
+.fila { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.fila > * { flex: 1 1 auto; min-width: 0; }
+button.b { padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); font: 600 14px inherit; font-family: inherit; }
+button.b.go { background: var(--accent); color: #fff; border-color: var(--accent); }
+button.b.warn { background: var(--warn); color: #fff; border-color: var(--warn); }
+button.b:disabled { opacity: .45; }
+select, input[type=number], input[type=text], input[type=password] { width: 100%; padding: 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); font: inherit; min-width: 0; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; table-layout: fixed; }
+td, th { padding: 3px 2px; text-align: left; vertical-align: middle; } th { font-size: 12px; color: var(--muted); font-weight: 600; }
+td.n { width: 24px; color: var(--muted); font: 12px ui-monospace, monospace; } td.x, th.x { width: 40px; }
+td.x button { padding: 8px 0; width: 100%; }
+tr.cur td { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.barras { display: grid; grid-template-columns: auto 1fr 44px; gap: 6px 8px; align-items: center; font-size: 13px; }
+.barra { height: 10px; background: var(--bg); border: 1px solid var(--line); border-radius: 99px; position: relative; overflow: hidden; }
+.barra i { position: absolute; top: 0; bottom: 0; background: var(--accent); }
+.prog { height: 12px; background: var(--bg); border: 1px solid var(--line); border-radius: 99px; overflow: hidden; margin: 8px 0; }
+.prog i { display: block; height: 100%; background: var(--accent); width: 0; transition: width .2s; }
+.mono { font-family: ui-monospace, monospace; font-size: 12.5px; overflow-wrap: anywhere; }
+.reg { max-height: 180px; overflow: auto; font: 12px/1.5 ui-monospace, monospace; color: var(--muted); }
+.parar { position: fixed; left: 16px; right: 16px; bottom: max(14px, env(safe-area-inset-bottom)); z-index: 4; padding: 18px; border: 0; border-radius: 16px; background: var(--stop); color: #fff; font: 800 20px inherit; font-family: inherit; letter-spacing: .08em; box-shadow: 0 6px 20px rgba(0,0,0,.25); max-width: 588px; margin: 0 auto; }
+.toast { position: fixed; left: 50%; bottom: 100px; transform: translateX(-50%); background: var(--fg); color: var(--bg); padding: 8px 14px; border-radius: 10px; font-size: 14px; opacity: 0; transition: opacity .2s; pointer-events: none; max-width: 90vw; z-index: 6; }
+.toast.show { opacity: 1; }
+small, .nota { color: var(--muted); font-size: 13px; }
+.mapa { width: 100%; height: auto; max-height: 60vh; display: block; background: #6f8f3e; border-radius: 10px; touch-action: manipulation; }
+.mapa.tocar { outline: 3px solid var(--blue); cursor: crosshair; }
+.puntos { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 6px; margin-top: 8px; }
+.puntos button { text-align: left; font-weight: 600; }
+.puntos button small { display: block; font-weight: 400; }
+.puntos button.aqui { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+.check { display: flex; gap: 8px; align-items: center; font-size: 14px; margin: 8px 0; color: var(--fg); }
+.check input { width: 20px; height: 20px; flex: none; }
+.tabs { display: flex; gap: 4px; margin-bottom: 8px; }
+.tabs button { flex: 1; padding: 8px 4px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); font: 600 13px inherit; font-family: inherit; }
+.tabs button.sel { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.modos { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.modos label { margin: 0; display: flex; gap: 8px; align-items: center; padding: 10px; border: 1px solid var(--line); border-radius: 10px; color: var(--fg); font-size: 14px; }
+.modos input { width: 18px; height: 18px; }
+.camara { width: 100%; border-radius: 10px; background: #000; display: block; min-height: 60px; }
+.login { position: fixed; inset: 0; z-index: 7; background: color-mix(in srgb, var(--bg) 92%, transparent); display: grid; place-items: center; padding: 16px; }
+.login form { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 18px; width: min(340px, 100%); display: grid; gap: 10px; }
+.login h2 { color: var(--fg); font-size: 16px; text-transform: none; letter-spacing: 0; }
+.dos { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.tres { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+</style>
+</head>
+<body>
+<header><h1>UGV de orugas</h1><span class="pill" id="conn">conectando…</span><span class="pill" id="modoP">—</span><span class="pill" id="estadoP">—</span></header>
+
+<div class="login" id="login" hidden>
+  <form id="fLogin">
+    <h2>PIN del robot</h2>
+    <p class="nota" style="margin:0">El PIN está en config.json de la Raspberry Pi (instalar.sh lo muestra al terminar). El botón PARAR funciona siempre, sin PIN.</p>
+    <input type="password" id="pin" inputmode="numeric" autocomplete="current-password" placeholder="PIN" aria-label="PIN">
+    <button class="b go" type="submit">Entrar</button>
+  </form>
+</div>
+
+<main>
+  <div class="aviso" id="aviso" hidden></div>
+
+  <section id="secMision" hidden>
+    <h2>Misión en curso</h2>
+    <div id="misTxt"></div>
+    <div class="prog"><i id="misProg"></i></div>
+    <p class="mono" id="misDet"></p>
+    <div class="fila">
+      <button class="b warn" id="bPausar">⏸ Pausar</button>
+      <button class="b go" id="bReanudar">▶ Reanudar</button>
+      <button class="b go" id="bSig">⏭ Siguiente punto</button>
+      <button class="b" id="bManual">Tomar control manual</button>
+    </div>
+    <p class="nota">Mientras el robot hace la misión, esta página debe seguir abierta: si se cierra o se pierde el Wi-Fi, el robot se detiene y la misión queda pausada.</p>
+  </section>
+
+  <section>
+    <h2>Control manual</h2>
+    <div class="pad" id="pad">
+      <span class="vacio"></span><button data-d="adelante" aria-label="Avanzar">▲</button><span class="vacio"></span>
+      <button data-d="izquierda" aria-label="Girar a la izquierda">◀</button><button class="alto" data-d="alto">ALTO</button><button data-d="derecha" aria-label="Girar a la derecha">▶</button>
+      <span class="vacio"></span><button data-d="atras" aria-label="Retroceder">▼</button><span class="vacio"></span>
+    </div>
+    <label for="vel">Velocidad: <b id="velTxt">60 %</b></label>
+    <input type="range" id="vel" min="20" max="100" step="5" value="60">
+    <div class="barras" style="margin-top:10px">
+      <span>Motor A (izq.)</span><div class="barra"><i id="bA"></i></div><span class="mono" id="vA">0</span>
+      <span>Motor B (der.)</span><div class="barra"><i id="bB"></i></div><span class="mono" id="vB">0</span>
+    </div>
+    <p class="nota">Mantén pulsada una flecha; al soltarla el robot se detiene. Si dejan de llegar órdenes durante <span id="tmo">800</span> ms, se detiene solo. En un computador también sirven las flechas del teclado y la barra espaciadora (parar).</p>
+  </section>
+
+  <section>
+    <h2>Mapa y posición</h2>
+    <svg class="mapa" id="mapa" viewBox="0 0 100 100" role="img" aria-label="Mapa del lugar de trabajo"></svg>
+    <p class="mono" id="posTxt">Posición: —</p>
+    <div class="fila"><select id="posSel" aria-label="Punto donde está el robot"></select><button class="b" id="bPos">El robot está aquí</button></div>
+    <details style="margin-top:8px"><summary class="nota">Indicar la posición con coordenadas</summary>
+      <div class="tres" style="margin-top:6px">
+        <div><label for="pX">X (m, este)</label><input type="number" id="pX" step="0.1" value="0" inputmode="decimal"></div>
+        <div><label for="pY">Y (m, norte)</label><input type="number" id="pY" step="0.1" value="0" inputmode="decimal"></div>
+        <div><label for="pR">Rumbo (°)</label><input type="number" id="pR" step="5" value="90" inputmode="decimal"></div>
+      </div>
+      <button class="b" id="bPosXY" style="margin-top:8px;width:100%">Fijar posición</button>
+      <p class="nota">Rumbo: 0° = este, 90° = norte, 180° = oeste, −90° = sur. El origen (0, 0) es el punto de referencia que el equipo marcó en el terreno.</p>
+    </details>
+    <p class="nota">El robot no tiene sensores de posición: calcula cada tramo con la calibración (posición por estima) y supone que llegó. El error crece con la distancia. Si lo detienes a mitad de camino o lo manejas a mano, llévalo a un punto conocido y pulsa «El robot está aquí».</p>
+  </section>
+
+  <section>
+    <h2>Modo de la misión</h2>
+    <div class="modos">
+      <label><input type="radio" name="modo" value="autonomo" checked> Autónomo</label>
+      <label><input type="radio" name="modo" value="temporal"> Temporal autónomo</label>
+    </div>
+    <div id="temporalOpc" hidden>
+      <div class="dos">
+        <div><label for="limMin">Tiempo límite (min)</label><input type="number" id="limMin" min="0.1" max="480" step="0.5" value="2" inputmode="decimal"></div>
+        <div><label for="alTerminar">Al cumplirse el tiempo</label><select id="alTerminar"><option value="detener">Detenerse de inmediato</option><option value="punto_seguro">Terminar el tramo si le falta poco</option></select></div>
+      </div>
+      <p class="nota">Solo cuenta el tiempo en marcha (no las pausas). «Terminar el tramo»: si el tramo actual termina en un punto y le faltan menos de <span id="tolTxt">10</span> s, llega a ese punto y se detiene; si no, se detiene ya. Nunca empieza un movimiento nuevo después del tiempo.</p>
+    </div>
+    <label class="check"><input type="checkbox" id="esperarOrden"> Esperar mi orden en cada punto (si no, espera <span id="espTxt">1</span> s y sigue)</label>
+    <label class="check"><input type="checkbox" id="usarCel"> Usar el celular a bordo para los giros y el rumbo</label>
+  </section>
+
+  <section id="secFinca">
+    <h2>Ir por los caminos del mapa</h2>
+    <div class="fila"><button class="b go" id="bTour">▶ Recorrido completo</button><button class="b" id="bCero">⟲ Desde cero</button><button class="b" id="bPuesto">Volver al puesto</button></div>
+    <p class="nota" style="margin:10px 0 0">Ir directo a un punto (por los caminos, sin pasar por los cultivos):</p>
+    <div class="puntos" id="puntos"></div>
+  </section>
+
+  <section>
+    <h2>Rutas guardadas</h2>
+    <div class="fila"><select id="lista" aria-label="Rutas guardadas"></select><button class="b" id="bNueva">+ Nueva</button></div>
+    <p class="mono" id="rutaInfo"></p>
+    <div class="tabs" id="tabs">
+      <button data-t="instrucciones">Metros y grados</button><button data-t="coordenadas">Coordenadas</button><button data-t="tramos">Tramos de tiempo</button>
+    </div>
+    <div id="edInstr">
+      <table><thead><tr><th style="width:24px"></th><th>Acción</th><th>Valor</th><th>Unidad</th><th class="x"></th></tr></thead><tbody id="tInstr"></tbody></table>
+      <p class="nota">Avanzar o retroceder en cm, m o km (máx. 10 km por fila); girar sobre su eje de 1 a 360° (izquierda = antihorario); esperar en segundos.</p>
+    </div>
+    <div id="edCoord" hidden>
+      <table><thead><tr><th style="width:24px"></th><th>Nombre</th><th>X (m)</th><th>Y (m)</th><th class="x"></th></tr></thead><tbody id="tCoord"></tbody></table>
+      <label class="check"><input type="checkbox" id="tocarMapa"> Agregar puntos tocando el mapa</label>
+      <p class="nota">El robot va en línea recta de punto en punto desde donde esté; si el siguiente punto queda atrás, retrocede. Ningún tramo puede pasar a menos del margen de seguridad de una zona prohibida del mapa.</p>
+    </div>
+    <div id="edTramos" hidden>
+      <table><thead><tr><th style="width:24px"></th><th>Tramo</th><th>Vel. %</th><th>Dur. s</th><th class="x"></th></tr></thead><tbody id="tTramos"></tbody></table>
+      <p class="nota">Cada tramo dura el tiempo indicado, sin calcular distancias (pruebas del informe). Después el robot no sabe dónde quedó.</p>
+    </div>
+    <p class="mono" id="resumen"></p>
+    <div class="fila"><button class="b" id="bFila">+ Fila</button><button class="b" id="bGuardar">Guardar</button><button class="b" id="bBorrar">Borrar</button></div>
+    <div class="fila" style="margin-top:8px"><button class="b go" id="bEjecutar">▶ Ejecutar ruta guardada</button></div>
+    <div class="fila" style="margin-top:8px"><button class="b" id="bExportar">Exportar JSON</button><button class="b" id="bImportar">Importar JSON</button><input type="file" id="archivo" accept="application/json,.json" hidden></div>
+  </section>
+
+  <section>
+    <h2>Calibración</h2>
+    <p class="mono" id="calTxt">Sin calibrar</p>
+    <label for="velAuto">Velocidad del modo autónomo (%)</label>
+    <input type="number" id="velAuto" min="20" max="100" step="5" value="60">
+    <div class="fila" style="margin-top:8px"><button class="b" id="bCalAv">1. Avanzar <span class="pS">10</span> s</button><input type="number" id="medCm" placeholder="cm avanzados" inputmode="decimal"><input type="number" id="medDes" placeholder="desvío cm (+ izq.)" inputmode="decimal"></div>
+    <div class="fila" style="margin-top:8px"><button class="b" id="bCalGi">2. Girar <span class="pS">10</span> s</button><input type="number" id="medGr" placeholder="grados girados" inputmode="decimal"></div>
+    <div class="fila" style="margin-top:8px"><button class="b go" id="bCalOk">Guardar calibración</button></div>
+    <p class="nota">Hazla sobre la superficie donde trabajará el robot, con la batería cargada. Pon el robot sobre una marca, pulsa «Avanzar» y mide con una cinta cuántos cm avanzó y cuánto se desvió de la línea recta (positivo si se fue a la izquierda: con eso se ajusta cada motor; repite hasta que el desvío sea menor de 2 cm). Luego «Girar» y mide cuántos grados giró. Si cambias la velocidad, hay que medir de nuevo.</p>
+  </section>
+
+  <section>
+    <h2>Celular a bordo (opcional)</h2>
+    <p class="mono" id="celTxt">Sin celular a bordo.</p>
+    <div class="fila"><button class="b" id="bAlinear">Alinear con el rumbo del robot</button><button class="b" id="bCam">Ver cámara</button></div>
+    <img class="camara" id="cam" alt="Cámara del celular a bordo" hidden>
+    <p class="nota">Sujeta un celular al robot (con la pantalla hacia arriba o la cámara hacia adelante), conéctalo a la red del robot y abre <b id="abordoUrl">https://10.42.0.1/abordo</b>. Aporta gratis: giros que terminan cuando el rumbo medido llega al objetivo, corrección del rumbo en línea recta, parada si detecta un golpe o una inclinación peligrosa, GPS (solo en exteriores) y la cámara para que tú veas los obstáculos. No mide distancias ni detecta obstáculos por sí solo.</p>
+  </section>
+
+  <section>
+    <h2>Datos de la prueba</h2>
+    <div class="tres">
+      <div><label for="pCod">Prueba</label><select id="pCod"><option></option><option>P1</option><option>P2</option><option>P3</option><option>P4</option><option>P5</option><option>P6</option><option>P7</option><option>P8</option><option>P9</option><option>P10</option></select></div>
+      <div><label for="pSup">Superficie</label><select id="pSup"><option></option><option>banco</option><option>piso</option><option>andén</option><option>tierra</option><option>pasto</option><option>arena</option><option>rampa</option></select></div>
+      <div><label for="pCar">Carga (kg)</label><select id="pCar"><option></option><option>0</option><option>1</option><option>2</option></select></div>
+    </div>
+    <div class="fila" style="margin-top:8px"><button class="b" id="bPrueba">Anotar en el registro</button><button class="b" id="bCsv">Descargar registro (CSV)</button></div>
+  </section>
+
+  <section>
+    <h2>Alertas y registro</h2>
+    <div class="reg" id="reg"></div>
+    <p class="mono" id="info"></p>
+    <button class="b" id="bSalir">Cerrar sesión en este dispositivo</button>
+  </section>
+</main>
+<button class="parar" id="parar">PARAR</button>
+<div class="toast" id="toast"></div>
+
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+const guardado = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (_) { } return null; };
+const CLIENTE = (() => { let c = null; try { c = sessionStorage.getItem('ugv-cliente'); if (!c) { c = Math.random().toString(36).slice(2, 12); sessionStorage.setItem('ugv-cliente', c); } } catch (_) { c = Math.random().toString(36).slice(2, 12); } return c; })();
+const TIPOS = { avanzar: 'Avanzar', retroceder: 'Retroceder', izquierda: 'Girar a la izq.', derecha: 'Girar a la der.', pausa: 'Pausa' };
+const ACC = { avanzar: 'Avanzar', retroceder: 'Retroceder', izquierda: 'Girar izq.', derecha: 'Girar der.', esperar: 'Esperar' };
+const DIR = { adelante: [1, 1], atras: [-1, -1], izquierda: [-1, 1], derecha: [1, -1] };
+const UNI = { cm: 1, m: 100, km: 100000 };
+let token = guardado('ugv-token'), est = null, toastT = null, mapa = null;
+
+function toast(t) { const e = $('toast'); e.textContent = t; e.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => e.classList.remove('show'), 3200); }
+function pedirPin() { $('login').hidden = false; setTimeout(() => $('pin').focus(), 50); }
+async function api(path, body, method = 'POST') {
+  const h = { 'Content-Type': 'application/json' }; if (token) h['X-Token'] = token;
+  const r = await fetch(path, { method, headers: h, body: body ? JSON.stringify(Object.assign({ cliente: CLIENTE }, body)) : undefined, cache: 'no-store' });
+  const d = await r.json().catch(() => ({}));
+  if (r.status === 401) { pedirPin(); throw new Error(d.error || 'Inicia sesión.'); }
+  if (!r.ok) throw new Error(d.error || 'Error ' + r.status);
+  return d;
+}
+const leerApi = path => api(path, null, 'GET');
+function accion(path, body, ok) { return api(path, body).then(d => { if (d.estado) pintar(d); if (ok) toast(ok); return d; }).catch(e => { toast(e.message); }); }
+
+/* ---------- sesión ---------- */
+$('fLogin').addEventListener('submit', async e => {
+  e.preventDefault();
+  try { const d = await api('/api/entrar', { pin: $('pin').value }); token = d.token; guardado('ugv-token', token); $('pin').value = ''; $('login').hidden = true; iniciar(); }
+  catch (er) { toast(er.message); }
+});
+$('bSalir').addEventListener('click', () => { api('/api/salir', {}).catch(() => { }); token = null; guardado('ugv-token', null); if (ws) ws.close(); pedirPin(); });
+
+/* ---------- tiempo real: WebSocket (si falla, HTTP) ---------- */
+let ws = null, wsOk = false, reintento = null;
+function conectar() {
+  if (!token || (ws && ws.readyState <= 1)) return;
+  ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
+  ws.onopen = () => ws.send(JSON.stringify({ t: 'hola', token, cliente: CLIENTE }));
+  ws.onmessage = ev => { let m; try { m = JSON.parse(ev.data); } catch (_) { return; }
+    if (m.t === 'estado') { wsOk = true; pintar(m.estado); }
+    else if (m.t === 'error') { if (m.codigo === 401) { pedirPin(); ws.close(); } else { if (held) soltar(false); toast(m.error); } } };
+  ws.onclose = () => { wsOk = false; clearTimeout(reintento); reintento = setTimeout(conectar, 1500); };
+  ws.onerror = () => { };
+}
+function mandar(m) { if (wsOk && ws.readyState === 1) { ws.send(JSON.stringify(m)); return true; } return false; }
+let fallos = 0;
+setInterval(async () => {                                     // respaldo por HTTP si no hay WebSocket
+  if (wsOk || !token) return;
+  try { pintar(await leerApi('/api/estado')); fallos = 0; } catch (_) { if (++fallos > 2) conexion(false); }
+}, 500);
+function conexion(ok) { $('conn').textContent = ok ? (wsOk ? 'en vivo' : 'conectado') : 'sin conexión'; $('conn').className = 'pill ' + (ok ? 'ok' : 'bad'); }
+// latido mientras este dispositivo tiene una misión en marcha (sin latidos el robot se detiene)
+setInterval(() => { if (est && est.tienes_control && est.estado === 'AUTOMÁTICO') { if (!mandar({ t: 'latido' })) api('/api/latido', {}).catch(() => { }); } }, 200);
+
+/* ---------- control manual: mantener pulsado ---------- */
+let held = null, holdT = null;
+function enviarMover() {
+  if (!held) return;
+  const v = +$('vel').value, [a, b] = DIR[held], m = { t: 'mover', izq: a * v, der: b * v };
+  if (!mandar(m)) api('/api/mover', { izq: m.izq, der: m.der }).then(pintar).catch(e => { soltar(false); toast(e.message); });
+}
+function pulsar(d) {
+  if (d === 'alto') { parar(); return; }
+  if (held === d) return;
+  held = d; marcar(); enviarMover(); clearInterval(holdT); holdT = setInterval(enviarMover, 100);
+}
+function soltar(mandarParar = true) {
+  if (!held) return;
+  held = null; marcar(); clearInterval(holdT);
+  if (mandarParar && !mandar({ t: 'mover', izq: 0, der: 0 })) api('/api/mover', { izq: 0, der: 0 }).then(pintar).catch(() => { });
+}
+function parar() {
+  held = null; marcar(); clearInterval(holdT);
+  mandar({ t: 'parar' });
+  fetch('/api/parar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cliente: CLIENTE }), keepalive: true })
+    .then(r => r.json()).then(() => toast('Robot detenido.')).catch(() => toast('No se pudo comunicar con el robot: desconecta la batería si sigue andando.'));
+}
+function marcar() { document.querySelectorAll('#pad button').forEach(b => b.classList.toggle('on', b.dataset.d === held)); }
+document.querySelectorAll('#pad button').forEach(b => {
+  b.addEventListener('pointerdown', e => { e.preventDefault(); b.setPointerCapture(e.pointerId); pulsar(b.dataset.d); });
+  ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(ev => b.addEventListener(ev, () => { if (held === b.dataset.d) soltar(); }));
+  b.addEventListener('contextmenu', e => e.preventDefault());
+});
+const TECLAS = { ArrowUp: 'adelante', w: 'adelante', ArrowDown: 'atras', s: 'atras', ArrowLeft: 'izquierda', a: 'izquierda', ArrowRight: 'derecha', d: 'derecha' };
+addEventListener('keydown', e => { if (/INPUT|SELECT|TEXTAREA/.test(e.target.tagName) || !$('login').hidden) return;
+  if (e.key === ' ') { e.preventDefault(); parar(); return; }
+  const d = TECLAS[e.key]; if (d && !e.repeat) { e.preventDefault(); pulsar(d); } });
+addEventListener('keyup', e => { if (TECLAS[e.key] && held === TECLAS[e.key]) soltar(); });
+document.addEventListener('visibilitychange', () => { if (document.hidden) soltar(); });
+addEventListener('blur', () => soltar());
+$('parar').addEventListener('click', parar);
+$('vel').addEventListener('input', e => { $('velTxt').textContent = e.target.value + ' %'; });
+
+/* ---------- estado ---------- */
+const nombre = id => id && mapa && mapa.puntos && mapa.puntos[id] ? `${id} (${mapa.puntos[id].nombre})` : (id || '—');
+const mmss = s => { s = Math.max(0, Math.round(s)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+function barra(el, v) { el.style.left = (v < 0 ? 50 + v / 2 : 50) + '%'; el.style.width = Math.abs(v) / 2 + '%'; }
+let ultimoEvento = -1;
+function pintar(d) {
+  if (!d || !d.estado) return;
+  est = d; conexion(true);
+  $('modoP').textContent = d.modo; $('modoP').className = 'pill ' + (d.modo === 'MANUAL' ? '' : 'ok');
+  const ep = $('estadoP'); ep.textContent = d.estado;
+  ep.className = 'pill ' + ({ 'DETENIDO POR SEGURIDAD': 'bad', 'AUTOMÁTICO': 'run', 'CONTROL REMOTO': 'run', 'PAUSADO': 'warn', 'ESPERANDO ORDEN': 'warn', 'TIEMPO CUMPLIDO': 'warn' }[d.estado] || '');
+  barra($('bA'), d.izq); barra($('bB'), d.der); $('vA').textContent = d.izq; $('vB').textContent = d.der; $('tmo').textContent = d.timeout_ms;
+  $('pad').classList.toggle('off', !!d.mision);
+  const mis = d.mision, av = $('aviso'); let txt = '', peligro = false;
+  if (d.estado === 'DETENIDO POR SEGURIDAD') { peligro = true; txt = 'Parada de seguridad' + (mis && mis.motivo ? `: ${mis.motivo}` : '') + (mis ? '. Revisa el robot y pulsa «Reanudar», o toma el control manual.' : '. Vuelve a pulsar una flecha para seguir.'); }
+  else if (d.estado === 'TIEMPO CUMPLIDO') txt = 'Se cumplió el tiempo del modo temporal: el robot se detuvo' + (d.pose.aproximada ? ' a mitad de un tramo (posición aproximada).' : (d.pose.nombre ? ` en ${nombre(d.pose.nombre)}.` : '.'));
+  else if (mis && !d.tienes_control) txt = 'La misión la maneja otro dispositivo.';
+  av.textContent = txt; av.hidden = !txt; av.classList.toggle('peligro', peligro);
+  // misión
+  $('secMision').hidden = !mis;
+  if (mis) {
+    const tem = mis.temporal;
+    $('misTxt').innerHTML = `<b>${esc(mis.nombre)}</b> · ${esc(mis.tipo)}` + (mis.ruta ? ` v${mis.ruta.version}` : '') + (tem ? ` · <b>quedan ${mmss(tem.restante_s)}</b> de ${mmss(tem.limite_s)}` : '') + (mis.usar_celular ? ' · con celular a bordo' : '');
+    $('misProg').style.width = mis.progreso + '%';
+    $('misDet').textContent = `Paso ${mis.paso} de ${mis.total}` + (mis.tramo ? ` · ${TIPOS[mis.tramo] || mis.tramo}` : '') + (mis.hacia ? ` hacia ${mis.hacia}` : '') + (mis.tramo_restante_s != null ? ` · ${mis.tramo_restante_s.toFixed(1)} s` : '') +
+      (mis.alcanzados.length ? ` · alcanzados: ${mis.alcanzados.join(', ')}` : '') + (mis.esperando ? ' · ESPERA TU ORDEN' : '');
+    $('bPausar').hidden = d.estado !== 'AUTOMÁTICO';
+    $('bReanudar').hidden = !(d.estado === 'PAUSADO' || d.estado === 'DETENIDO POR SEGURIDAD');
+    $('bSig').hidden = d.estado !== 'ESPERANDO ORDEN';
+    $('bManual').disabled = d.estado === 'AUTOMÁTICO';
+  }
+  // posición
+  const p = d.pose;
+  $('posTxt').textContent = p.conocida ? `Posición ${p.aproximada ? 'APROXIMADA' : 'estimada'}: ${p.nombre ? nombre(p.nombre) + ' · ' : ''}x ${p.x_m.toFixed(2)} m, y ${p.y_m.toFixed(2)} m · rumbo ${Math.round(p.rumbo)}° · ${p.fuente}` : 'Posición desconocida: indica dónde está el robot.';
+  // calibración
+  const c = d.calibracion;
+  $('calTxt').textContent = c.calibrado ? `Avance ${c.cm_s} cm/s · giro ${c.grados_s} °/s a ${c.vel_auto} % · factores ${c.factor_izq} / ${c.factor_der}` : 'Sin calibrar: haz las dos pruebas antes de usar el modo autónomo.';
+  document.querySelectorAll('.pS').forEach(s => s.textContent = String(c.prueba_s).replace('.', ','));
+  $('espTxt').textContent = String(c.espera_s).replace('.', ',');
+  if (document.activeElement !== $('velAuto')) $('velAuto').value = c.vel_auto;
+  // finca
+  const libre = !mis && !held && c.calibrado, enPunto = p.conocida && !p.aproximada && p.nombre && mapa && mapa.puntos && mapa.puntos[p.nombre];
+  ['bTour', 'bCero', 'bPuesto'].forEach(id => $(id).disabled = !libre || !enPunto);
+  $('puntos').querySelectorAll('button').forEach(b => { b.disabled = !libre || !enPunto || b.dataset.p === p.nombre; b.classList.toggle('aqui', b.dataset.p === p.nombre); });
+  $('bEjecutar').disabled = !!mis;
+  // celular
+  const cel = d.celular;
+  $('celTxt').textContent = !cel || !cel.conectado ? 'Sin celular a bordo (opcional).' :
+    `Conectado · ${cel.alineado ? `rumbo ${cel.rumbo}°` : 'sin alinear'} · inclinación ${cel.inclinacion}°` + (cel.gps ? ` · GPS ±${cel.gps.precision} m` : '') + (cel.camara ? ' · cámara activa' : '');
+  $('usarCel').disabled = !(cel && cel.conectado && cel.alineado); if ($('usarCel').disabled) $('usarCel').checked = false;
+  // alertas y registro
+  if (d.eventos !== ultimoEvento) { ultimoEvento = d.eventos; registro(); }
+  $('info').textContent = `PWM ${d.pwm} · pines ENA ${fmtPin(d.pines.ENA)} IN1 ${fmtPin(d.pines.IN1)} IN2 ${fmtPin(d.pines.IN2)} IN3 ${fmtPin(d.pines.IN3)} IN4 ${fmtPin(d.pines.IN4)} ENB ${fmtPin(d.pines.ENB)} · batería: ${d.bateria.texto}`;
+  dibujarMapa();
+}
+const fmtPin = v => v == null ? '·' : v === true ? '1' : v === false ? '0' : (typeof v === 'number' ? (v > 0 && v < 1 ? v.toFixed(2) : String(v)) : String(v));
+
+/* ---------- misión ---------- */
+function opciones() {
+  const o = { esperar_orden: $('esperarOrden').checked, usar_celular: $('usarCel').checked };
+  if (document.querySelector('input[name=modo]:checked').value === 'temporal') o.temporal = { limite_s: Math.round(+$('limMin').value * 60), al_terminar: $('alTerminar').value };
+  return o;
+}
+document.querySelectorAll('input[name=modo]').forEach(r => r.addEventListener('change', () => { $('temporalOpc').hidden = document.querySelector('input[name=modo]:checked').value !== 'temporal'; }));
+function iniciarMision(path, body) { soltar(false); return accion(path, Object.assign(opciones(), body)); }
+$('bPausar').addEventListener('click', () => accion('/api/pausar', {}));
+$('bReanudar').addEventListener('click', () => accion('/api/reanudar', {}));
+$('bSig').addEventListener('click', () => accion('/api/siguiente', {}));
+$('bManual').addEventListener('click', () => accion('/api/manual', {}, 'Control manual: la misión se canceló.'));
+$('bTour').addEventListener('click', () => iniciarMision('/api/recorrido', {}));
+$('bCero').addEventListener('click', () => iniciarMision('/api/recorrido', { desde_cero: true }));
+$('bPuesto').addEventListener('click', () => iniciarMision('/api/ir', { destino: mapa ? mapa.inicio : 'PUESTO' }));
+$('bPos').addEventListener('click', () => accion('/api/posicion', { punto: $('posSel').value }, 'Posición indicada.'));
+$('bPosXY').addEventListener('click', () => accion('/api/posicion', { x_m: +$('pX').value, y_m: +$('pY').value, rumbo: +$('pR').value }, 'Posición indicada.'));
+
+/* ---------- mapa ---------- */
+async function cargarMapa() {
+  mapa = await leerApi('/api/mapa');
+  if (!mapa || !mapa.puntos) { mapa = null; $('secFinca').hidden = true; $('posSel').innerHTML = ''; return; }
+  const ps = Object.entries(mapa.puntos);
+  $('puntos').innerHTML = ps.filter(([, p]) => p.tipo !== 'cruce').map(([id, p]) => `<button class="b" data-p="${esc(id)}">${esc(id)}<small>${esc(p.nombre)}</small></button>`).join('');
+  $('posSel').innerHTML = ps.map(([id, p]) => `<option value="${esc(id)}">${esc(id)} · ${esc(p.nombre)}</option>`).join('');
+  $('puntos').querySelectorAll('button').forEach(b => b.addEventListener('click', () => iniciarMision('/api/ir', { destino: b.dataset.p })));
+  firma = ''; dibujarMapa();
+}
+let firma = '', vista = null;
+function dibujarMapa() {
+  const prev = previsualizar(), p = est && est.pose;
+  const f = JSON.stringify([p && [p.x_m, p.y_m, Math.round(p.rumbo || 0), p.aproximada], prev, !!mapa]);
+  if (f === firma) return; firma = f;
+  const P = mapa ? Object.values(mapa.puntos) : [], L = mapa ? mapa.lotes || [] : [];
+  let xs = P.map(q => q.x).concat(L.flatMap(l => [l.x0, l.x1]), prev.map(q => q[0])), ys = P.map(q => q.y).concat(L.flatMap(l => [l.y0, l.y1]), prev.map(q => q[1]));
+  if (p && p.conocida) { xs.push(p.x_m * 100); ys.push(p.y_m * 100); }
+  if (!xs.length) { xs = [-300, 300]; ys = [-300, 300]; }
+  const x0 = Math.min(...xs) - 80, x1 = Math.max(...xs) + 80, y0 = Math.min(...ys) - 80, y1 = Math.max(...ys) + 120;
+  vista = [x0, -y1, x1 - x0, y1 - y0];
+  const svg = $('mapa'); svg.setAttribute('viewBox', vista.join(' '));
+  const C = { cafe: '#2f6b2a', platano: '#4c8f2f', maiz: '#b8a23a', huerta: '#6d8f3a' }, k = Math.max(x1 - x0, y1 - y0) / 100;
+  let h = L.map(l => `<rect x="${l.x0}" y="${-l.y1}" width="${l.x1 - l.x0}" height="${l.y1 - l.y0}" fill="${C[l.cultivo] || '#3e7a30'}" rx="${k}"/><text x="${(l.x0 + l.x1) / 2}" y="${-(l.y0 + l.y1) / 2}" font-size="${3 * k}" fill="#fff" text-anchor="middle">${esc(l.nombre)}</text>`).join('');
+  if (mapa) h += mapa.caminos.map(([a, b]) => { const A = mapa.puntos[a], B = mapa.puntos[b]; return `<line x1="${A.x}" y1="${-A.y}" x2="${B.x}" y2="${-B.y}" stroke="#c9b28a" stroke-width="${8 * k}" stroke-linecap="round"/>`; }).join('');
+  // cuadrícula de 1 m alrededor del origen para orientarse
+  h += `<circle cx="0" cy="0" r="${1.2 * k}" fill="#fff" opacity=".8"/><text x="${2 * k}" y="${-2 * k}" font-size="${2.6 * k}" fill="#fff" opacity=".8">(0,0)</text>`;
+  if (mapa) h += Object.entries(mapa.puntos).map(([id, q]) => q.tipo === 'cruce' ? `<circle cx="${q.x}" cy="${-q.y}" r="${1.3 * k}" fill="#8a7650"/>` :
+    `<circle cx="${q.x}" cy="${-q.y}" r="${2.8 * k}" fill="${q.tipo === 'puesto' ? '#1f9a6c' : q.tipo === 'almacen' ? '#c8261d' : '#f2c230'}" stroke="#fff" stroke-width="${.5 * k}"/><text x="${q.x}" y="${-q.y - 4 * k}" font-size="${3.4 * k}" font-weight="700" fill="#fff" text-anchor="middle">${esc(id === 'ALMACEN' ? 'Almacén' : id === 'PUESTO' ? 'Puesto' : id)}</text>`).join('');
+  if (prev.length > 1) h += `<polyline points="${prev.map(q => `${q[0]},${-q[1]}`).join(' ')}" fill="none" stroke="#2d4fb8" stroke-width="${1.4 * k}" stroke-dasharray="${3 * k} ${2 * k}"/>` +
+    prev.slice(1).map((q, i) => `<circle cx="${q[0]}" cy="${-q[1]}" r="${1.6 * k}" fill="#2d4fb8"/><text x="${q[0] + 2 * k}" y="${-q[1] + 1 * k}" font-size="${2.6 * k}" fill="#fff">${i + 1}</text>`).join('');
+  if (p && p.conocida) {
+    const x = p.x_m * 100, y = p.y_m * 100, r = p.rumbo * Math.PI / 180, Lr = 6 * k, col = p.aproximada ? '#f2c230' : '#fff';
+    h += `<circle cx="${x}" cy="${-y}" r="${3.6 * k}" fill="none" stroke="${col}" stroke-width="${.8 * k}" ${p.aproximada ? `stroke-dasharray="${k} ${k}"` : ''}/><line x1="${x}" y1="${-y}" x2="${x + Math.cos(r) * Lr}" y2="${-y - Math.sin(r) * Lr}" stroke="${col}" stroke-width="${1.2 * k}"/>`;
+  }
+  svg.innerHTML = h;
+}
+$('mapa').addEventListener('click', e => {
+  if (!$('tocarMapa').checked || tipoRuta !== 'coordenadas') return;
+  const svg = $('mapa'), pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY;
+  const q = pt.matrixTransform(svg.getScreenCTM().inverse());
+  filaCoord({ nombre: 'P' + ($('tCoord').children.length + 1), x_m: Math.round(q.x / 10) / 10, y_m: Math.round(-q.y / 10) / 10 }); resumen();
+});
+$('tocarMapa').addEventListener('change', e => $('mapa').classList.toggle('tocar', e.target.checked));
+
+/* ---------- rutas: editor ---------- */
+let rutas = {}, tipoRuta = 'instrucciones', rutaSel = null;
+function selTabla(id) { return { instrucciones: 'tInstr', coordenadas: 'tCoord', tramos: 'tTramos' }[id]; }
+function cambiarTipo(t) {
+  tipoRuta = t;
+  document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('sel', b.dataset.t === t));
+  $('edInstr').hidden = t !== 'instrucciones'; $('edCoord').hidden = t !== 'coordenadas'; $('edTramos').hidden = t !== 'tramos';
+  if (t !== 'coordenadas') { $('tocarMapa').checked = false; $('mapa').classList.remove('tocar'); }
+  resumen();
+}
+document.querySelectorAll('#tabs button').forEach(b => b.addEventListener('click', () => { cambiarTipo(b.dataset.t); if (!$(selTabla(b.dataset.t)).children.length) agregarFila(); }));
+function quitar(tr) { tr.querySelector('.x button').addEventListener('click', () => { tr.remove(); resumen(); }); tr.querySelectorAll('input,select').forEach(i => i.addEventListener('input', resumen)); }
+function filaInstr(it = { accion: 'avanzar', valor: 1, unidad: 'm' }) {
+  const tr = document.createElement('tr');
+  tr.innerHTML = `<td class="n"></td><td><select>${Object.entries(ACC).map(([k, v]) => `<option value="${k}" ${k === it.accion ? 'selected' : ''}>${v}</option>`).join('')}</select></td>
+    <td><input type="number" min="0" step="any" value="${+it.valor || 1}" inputmode="decimal"></td><td><select class="u"></select></td><td class="x"><button class="b" title="Quitar fila">✕</button></td>`;
+  const acc = tr.querySelector('select'), uni = tr.querySelector('select.u');
+  const sync = () => { const a = acc.value, prev = uni.value || it.unidad;
+    uni.innerHTML = (a === 'avanzar' || a === 'retroceder') ? ['cm', 'm', 'km'].map(u => `<option ${u === prev ? 'selected' : ''}>${u}</option>`).join('') : a === 'esperar' ? '<option value="s">s</option>' : '<option value="grados">grados</option>';
+    if ((a === 'avanzar' || a === 'retroceder') && !UNI[uni.value]) uni.value = 'm'; resumen(); };
+  acc.addEventListener('change', sync); quitar(tr); $('tInstr').appendChild(tr); sync();
+}
+function filaCoord(p = { nombre: '', x_m: 0, y_m: 0 }) {
+  const tr = document.createElement('tr');
+  tr.innerHTML = `<td class="n"></td><td><input type="text" maxlength="20" value="${esc(p.nombre)}"></td><td><input type="number" step="0.1" value="${+p.x_m}" inputmode="decimal"></td><td><input type="number" step="0.1" value="${+p.y_m}" inputmode="decimal"></td><td class="x"><button class="b" title="Quitar punto">✕</button></td>`;
+  quitar(tr); $('tCoord').appendChild(tr);
+}
+function filaTramo(t = { tipo: 'avanzar', velocidad: 60, duracion: 2 }) {
+  const tr = document.createElement('tr');
+  tr.innerHTML = `<td class="n"></td><td><select>${Object.entries(TIPOS).map(([k, v]) => `<option value="${k}" ${k === t.tipo ? 'selected' : ''}>${v}</option>`).join('')}</select></td>
+    <td><input type="number" min="0" max="100" step="5" value="${+t.velocidad}" inputmode="numeric"></td><td><input type="number" min="0.1" max="60" step="0.1" value="${+t.duracion}" inputmode="decimal"></td><td class="x"><button class="b" title="Quitar tramo">✕</button></td>`;
+  const sel = tr.querySelector('select'), vel = tr.querySelector('input');
+  const sync = () => { vel.disabled = sel.value === 'pausa'; if (vel.disabled) vel.value = 0; resumen(); };
+  sel.addEventListener('change', sync); quitar(tr); $('tTramos').appendChild(tr); sync();
+}
+function agregarFila() { ({ instrucciones: filaInstr, coordenadas: () => filaCoord({ nombre: 'P' + ($('tCoord').children.length + 1), x_m: 0, y_m: 0 }), tramos: filaTramo })[tipoRuta](); resumen(); }
+$('bFila').addEventListener('click', agregarFila);
+function leerRuta() {
+  if (tipoRuta === 'instrucciones') return { instrucciones: [...$('tInstr').children].map(tr => ({ accion: tr.querySelector('select').value, valor: +tr.querySelector('input').value, unidad: tr.querySelector('select.u').value })) };
+  if (tipoRuta === 'coordenadas') return { puntos: [...$('tCoord').children].map((tr, i) => { const [n, x, y] = tr.querySelectorAll('input'); return { nombre: n.value.trim() || 'P' + (i + 1), x_m: +x.value, y_m: +y.value }; }) };
+  return { tramos: [...$('tTramos').children].map(tr => { const [v, d] = tr.querySelectorAll('input'); return { tipo: tr.querySelector('select').value, velocidad: +v.value, duracion: +d.value }; }) };
+}
+function mostrarRuta(r) {
+  ['tInstr', 'tCoord', 'tTramos'].forEach(id => $(id).innerHTML = '');
+  cambiarTipo(r.tipo);
+  if (r.tipo === 'instrucciones') r.datos.instrucciones.forEach(filaInstr);
+  else if (r.tipo === 'coordenadas') r.datos.puntos.forEach(filaCoord);
+  else r.datos.tramos.forEach(filaTramo);
+  resumen();
+}
+// recorrido previsto (cm) para dibujarlo en el mapa
+function previsualizar() {
+  const p = est && est.pose; if (!$('tInstr')) return [];
+  let x = p && p.conocida ? p.x_m * 100 : null, y = p && p.conocida ? p.y_m * 100 : null, r = p && p.conocida ? p.rumbo : null;
+  if (tipoRuta === 'coordenadas') { const pts = leerRuta().puntos.filter(q => isFinite(q.x_m) && isFinite(q.y_m)).map(q => [q.x_m * 100, q.y_m * 100]); return x == null ? pts : [[x, y]].concat(pts); }
+  if (tipoRuta === 'instrucciones' && x != null) {
+    const out = [[x, y]];
+    for (const it of leerRuta().instrucciones) {
+      if (!(it.valor > 0)) continue;
+      if (it.accion === 'izquierda') r += it.valor; else if (it.accion === 'derecha') r -= it.valor;
+      else if (it.accion === 'avanzar' || it.accion === 'retroceder') { const d = it.valor * (UNI[it.unidad] || 100) * (it.accion === 'avanzar' ? 1 : -1); x += d * Math.cos(r * Math.PI / 180); y += d * Math.sin(r * Math.PI / 180); out.push([x, y]); }
+    }
+    return out;
+  }
+  return [];
+}
+function resumen() {
+  document.querySelectorAll('#tInstr td.n, #tCoord td.n, #tTramos td.n').forEach(td => td.textContent = [...td.parentNode.parentNode.children].indexOf(td.parentNode) + 1);
+  const c = est && est.calibracion, d = leerRuta(); let txt = '';
+  if (tipoRuta === 'instrucciones') {
+    let cm = 0, gr = 0, esp = 0; d.instrucciones.forEach(it => { if (it.accion === 'avanzar' || it.accion === 'retroceder') cm += it.valor * (UNI[it.unidad] || 0); else if (it.accion === 'esperar') esp += it.valor; else gr += it.valor; });
+    txt = `${d.instrucciones.length} instrucciones · ${(cm / 100).toFixed(2)} m · ${Math.round(gr)}° de giro`;
+    if (c && c.calibrado) txt += ` · ≈ ${mmss(cm / c.cm_s + gr / c.grados_s + esp)}`;
+  } else if (tipoRuta === 'coordenadas') {
+    const pts = previsualizar(); let cm = 0; for (let i = 1; i < pts.length; i++) cm += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+    txt = `${d.puntos.length} puntos` + (pts.length > d.puntos.length ? ` · ${(cm / 100).toFixed(2)} m en línea recta desde la posición actual` : ' · indica la posición del robot para calcular la distancia');
+    if (c && c.calibrado && pts.length > d.puntos.length) txt += ` · ≈ ${mmss(cm / c.cm_s)} de avance + giros`;
+  } else txt = `${d.tramos.length} tramos · ${d.tramos.reduce((s, x) => s + (+x.duracion || 0), 0).toFixed(1)} s en total`;
+  $('resumen').textContent = txt;
+  dibujarMapa();
+}
+async function listar(sel) {
+  rutas = await leerApi('/api/rutas');
+  const ids = Object.keys(rutas);
+  $('lista').innerHTML = ids.map(id => `<option value="${esc(id)}">${esc(rutas[id].nombre)} · v${rutas[id].version}</option>`).join('');
+  if (sel && rutas[sel]) $('lista').value = sel;
+  abrir();
+}
+function abrir() {
+  const id = $('lista').value; rutaSel = rutas[id] ? Object.assign({ id }, rutas[id]) : null;
+  if (rutaSel) { mostrarRuta(rutaSel); $('rutaInfo').textContent = `«${rutaSel.nombre}» · ${rutaSel.tipo} · versión ${rutaSel.version} · ${rutaSel.actualizado}`; }
+  else $('rutaInfo').textContent = 'Sin rutas guardadas.';
+}
+$('lista').addEventListener('change', abrir);
+$('bNueva').addEventListener('click', () => { rutaSel = null; $('lista').value = ''; $('rutaInfo').textContent = 'Ruta nueva (sin guardar).'; ['tInstr', 'tCoord', 'tTramos'].forEach(id => $(id).innerHTML = ''); agregarFila(); });
+async function guardarRuta() {
+  const n = prompt('Nombre de la ruta:', rutaSel ? rutaSel.nombre : 'Mi ruta'); if (!n) return null;
+  const r = await api('/api/rutas', { nombre: n.trim(), tipo: tipoRuta, datos: leerRuta() });
+  await listar(r.id); toast(`Ruta guardada (versión ${r.version}).`); return r;
+}
+$('bGuardar').addEventListener('click', () => guardarRuta().catch(e => toast(e.message)));
+$('bBorrar').addEventListener('click', async () => { if (!rutaSel || !confirm(`¿Borrar la ruta «${rutaSel.nombre}»?`)) return;
+  try { await api('/api/rutas/' + encodeURIComponent(rutaSel.id), null, 'DELETE'); await listar(); toast('Ruta borrada.'); } catch (e) { toast(e.message); } });
+$('bEjecutar').addEventListener('click', async () => {
+  try {
+    const cambios = !rutaSel || rutaSel.tipo !== tipoRuta || JSON.stringify(leerRuta()) !== JSON.stringify(rutaSel.datos);
+    if (cambios && !confirm('La ruta tiene cambios sin guardar. ¿Guardarla y ejecutarla?')) return;
+    const r = cambios ? await guardarRuta() : rutaSel; if (!r) return;
+    await iniciarMision('/api/ejecutar', { id: r.id, version: r.version });
+  } catch (e) { toast(e.message); }
+});
+$('bExportar').addEventListener('click', () => { const nom = rutaSel ? rutaSel.nombre : 'ruta', a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([JSON.stringify({ nombre: nom, tipo: tipoRuta, datos: leerRuta() }, null, 2)], { type: 'application/json' }));
+  a.download = nom.replace(/[^\w\-]+/g, '_') + '.json'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); });
+$('bImportar').addEventListener('click', () => $('archivo').click());
+$('archivo').addEventListener('change', async e => { const f = e.target.files[0]; if (!f) return;
+  try { const d = JSON.parse(await f.text()); if (Array.isArray(d) || d.tramos) mostrarRuta({ tipo: 'tramos', datos: { tramos: Array.isArray(d) ? d : d.tramos } }); else mostrarRuta(d);
+    rutaSel = null; toast('Ruta importada: revísala y guárdala.'); } catch (_) { toast('El archivo no es una ruta válida.'); } e.target.value = ''; });
+
+/* ---------- calibración ---------- */
+const velAuto = () => ({ vel_auto: +$('velAuto').value });
+$('bCalAv').addEventListener('click', () => api('/api/calibracion', velAuto()).then(() => iniciarMision('/api/calibrar', { prueba: 'avance', temporal: undefined })).catch(e => toast(e.message)));
+$('bCalGi').addEventListener('click', () => api('/api/calibracion', velAuto()).then(() => iniciarMision('/api/calibrar', { prueba: 'giro', temporal: undefined })).catch(e => toast(e.message)));
+$('bCalOk').addEventListener('click', () => { const b = velAuto(); if (+$('medCm').value) b.medido_cm = +$('medCm').value; if (+$('medGr').value) b.medido_grados = +$('medGr').value; if ($('medDes').value !== '') b.medido_desvio_cm = +$('medDes').value;
+  accion('/api/calibracion', b, 'Calibración guardada.'); });
+
+/* ---------- celular a bordo ---------- */
+$('abordoUrl').textContent = `https://${location.hostname}/abordo`;
+$('bAlinear').addEventListener('click', () => accion('/api/celular/alinear', {}, 'Celular alineado con el rumbo del robot.'));
+let camT = null, camUrl = null;
+$('bCam').addEventListener('click', () => {
+  const ver = $('cam').hidden; $('cam').hidden = !ver; $('bCam').textContent = ver ? 'Ocultar cámara' : 'Ver cámara'; clearInterval(camT);
+  if (ver) camT = setInterval(async () => {
+    if (!est || !est.celular || !est.celular.camara) return;
+    try { const r = await fetch('/api/camara.jpg', { headers: { 'X-Token': token }, cache: 'no-store' }); if (!r.ok) return;
+      const u = URL.createObjectURL(await r.blob()); $('cam').src = u; if (camUrl) URL.revokeObjectURL(camUrl); camUrl = u; } catch (_) { }
+  }, 600);
+});
+
+/* ---------- prueba, alertas y registro ---------- */
+$('bPrueba').addEventListener('click', () => accion('/api/prueba', { codigo: $('pCod').value, superficie: $('pSup').value, carga_kg: $('pCar').value }, 'Datos de la prueba anotados.'));
+$('bCsv').addEventListener('click', async () => {
+  try { const r = await fetch('/registro.csv', { headers: { 'X-Token': token } }); if (!r.ok) throw new Error('No se pudo descargar.');
+    const a = document.createElement('a'); a.href = URL.createObjectURL(await r.blob()); a.download = (r.headers.get('Content-Disposition') || '').split('"')[1] || 'registro.csv'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); }
+  catch (e) { toast(e.message); }
+});
+async function registro() {
+  try { const r = await leerApi('/api/registro?n=30');
+    $('reg').innerHTML = r.slice().reverse().map(x => { const col = x.nivel === 'peligro' ? 'var(--stop)' : x.nivel === 'aviso' ? 'var(--warn)' : '';
+      return `<span style="color:${col}">${esc(x.fecha_hora.slice(11, 19))} · ${esc(x.modo)} · ${esc(x.evento)}${x.izq || x.der ? ` (${esc(x.izq)}, ${esc(x.der)})` : ''}</span>`; }).join('<br>'); } catch (_) { }
+}
+
+/* ---------- arranque ---------- */
+async function iniciar() {
+  if (!token) { pedirPin(); return; }
+  try {
+    const info = await (await fetch('/api/info', { cache: 'no-store' })).json();
+    pintar(await leerApi('/api/estado'));
+    $('info').dataset.v = info.version;
+    await cargarMapa();
+    await listar();
+    conectar();
+  } catch (e) { if (token) toast(e.message); }
+}
+iniciar();
+</script>
+</body>
+</html>

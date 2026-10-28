@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#14171a">
+<title>UGV · celular a bordo</title>
+<style>
+:root { --bg: #f3f1ea; --panel: #fff; --fg: #1b1d1f; --muted: #6b6f74; --line: #d9d6cc; --accent: #1f9a6c; --stop: #c8261d; --warn: #c98a0c; --r: 14px; }
+@media (prefers-color-scheme: dark) { :root { --bg: #121416; --panel: #1c1f22; --fg: #eceae4; --muted: #9aa0a6; --line: #30343a; --accent: #2fbf87; } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; padding: 0 0 100px; }
+header { display: flex; align-items: center; gap: 8px; padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
+header h1 { font-size: 16px; margin: 0; flex: 1; }
+.pill { font: 600 12px ui-monospace, monospace; padding: 4px 10px; border-radius: 99px; border: 1px solid var(--line); }
+.pill.ok { color: var(--accent); border-color: var(--accent); } .pill.bad { color: var(--stop); border-color: var(--stop); }
+main { max-width: 520px; margin: 0 auto; padding: 12px 16px; display: grid; gap: 12px; }
+section { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 12px; }
+h2 { font-size: 13.5px; margin: 0 0 8px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+button.b { padding: 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); font: 600 15px inherit; font-family: inherit; width: 100%; }
+button.b.go { background: var(--accent); color: #fff; border-color: var(--accent); }
+input { width: 100%; padding: 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); font: inherit; }
+.datos { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font: 14px ui-monospace, monospace; }
+.datos span:nth-child(odd) { color: var(--muted); }
+.nota { color: var(--muted); font-size: 13px; }
+video, canvas { display: none; }
+img { width: 100%; border-radius: 10px; }
+.parar { position: fixed; left: 16px; right: 16px; bottom: max(14px, env(safe-area-inset-bottom)); padding: 18px; border: 0; border-radius: 16px; background: var(--stop); color: #fff; font: 800 20px inherit; font-family: inherit; letter-spacing: .08em; max-width: 488px; margin: 0 auto; }
+.fila { display: flex; gap: 8px; } .fila > * { flex: 1; }
+[hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<header><h1>Celular a bordo</h1><span class="pill" id="conn">sin conectar</span></header>
+<main>
+  <section id="secLogin">
+    <h2>PIN del robot</h2>
+    <form id="fLogin" class="fila"><input type="password" id="pin" inputmode="numeric" placeholder="PIN" aria-label="PIN"><button class="b go" type="submit" style="flex:0 0 110px">Entrar</button></form>
+  </section>
+
+  <section>
+    <h2>Cómo usarlo</h2>
+    <p class="nota" style="margin-top:0">1. Sujeta el celular firme al robot (cinta o soporte): <b>acostado con la pantalla hacia arriba</b> o <b>de pie con la cámara trasera mirando hacia adelante</b>. Si se mueve dentro del soporte, las medidas no sirven.<br>
+    2. Pulsa «Iniciar sensores» y acepta los permisos. Deja esta página abierta y la pantalla encendida.<br>
+    3. En el panel del operador, indica dónde está el robot y pulsa «Alinear con el rumbo del robot».</p>
+    <div class="fila"><button class="b go" id="bIniciar">Iniciar sensores</button><button class="b" id="bCamara">Enviar cámara</button></div>
+    <label class="nota" style="display:flex;gap:8px;align-items:center;margin-top:10px"><input type="checkbox" id="gps" style="width:20px;height:20px"> Enviar GPS (solo sirve en exteriores)</label>
+  </section>
+
+  <section>
+    <h2>Lo que mide</h2>
+    <div class="datos">
+      <span>Montaje</span><span id="dMontaje">—</span>
+      <span>Rumbo (celular)</span><span id="dRumbo">—</span>
+      <span>Inclinación</span><span id="dIncl">—</span>
+      <span>Golpe (pico)</span><span id="dAcel">—</span>
+      <span>GPS</span><span id="dGps">—</span>
+      <span>Envíos</span><span id="dEnv">0</span>
+    </div>
+    <p class="nota">El robot se detiene si el golpe supera <span id="lChoque">12</span> m/s² o la inclinación supera <span id="lIncl">35</span>°. El rumbo sale del giroscopio y puede desviarse unos grados por minuto: vuelve a alinear de vez en cuando en un punto conocido.</p>
+    <img id="vista" alt="Lo que envía la cámara" hidden>
+  </section>
+</main>
+<button class="parar" id="parar">PARAR</button>
+<video id="video" playsinline muted></video><canvas id="lienzo" width="320" height="240"></canvas>
+
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const guardado = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (_) { } return null; };
+let token = guardado('ugv-token'), ws = null, wsOk = false, enviados = 0;
+const CLIENTE = 'abordo-' + Math.random().toString(36).slice(2, 8);
+$('secLogin').hidden = !!token;
+
+function estadoConexion(ok, txt) { $('conn').textContent = txt; $('conn').className = 'pill ' + (ok ? 'ok' : 'bad'); }
+async function api(path, body, extra) {
+  const r = await fetch(path, Object.assign({ method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Token': token || '' }, body: JSON.stringify(body), cache: 'no-store' }, extra || {}));
+  const d = await r.json().catch(() => ({}));
+  if (r.status === 401) { token = null; guardado('ugv-token', null); $('secLogin').hidden = false; }
+  if (!r.ok) throw new Error(d.error || 'Error ' + r.status);
+  return d;
+}
+$('fLogin').addEventListener('submit', async e => {
+  e.preventDefault();
+  try { const d = await api('/api/entrar', { pin: $('pin').value }); token = d.token; guardado('ugv-token', token); $('secLogin').hidden = true; conectar(); }
+  catch (er) { alert(er.message); }
+});
+$('parar').addEventListener('click', () => {
+  if (wsOk) ws.send(JSON.stringify({ t: 'parar' }));
+  fetch('/api/parar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', keepalive: true }).catch(() => { });
+});
+
+function conectar() {
+  if (!token || (ws && ws.readyState <= 1)) return;
+  ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
+  ws.onopen = () => ws.send(JSON.stringify({ t: 'hola', token, cliente: CLIENTE }));
+  ws.onmessage = ev => { let m; try { m = JSON.parse(ev.data); } catch (_) { return; }
+    if (m.t === 'estado') { wsOk = true; estadoConexion(true, m.estado.estado); }
+    if (m.t === 'error' && m.codigo === 401) { token = null; guardado('ugv-token', null); $('secLogin').hidden = false; ws.close(); } };
+  ws.onclose = () => { wsOk = false; estadoConexion(false, 'sin conexión'); setTimeout(conectar, 1500); };
+}
+fetch('/api/config', { headers: { 'X-Token': token || '' } }).then(r => r.ok ? r.json() : null).then(c => { if (c) { $('lChoque').textContent = c.choque_ms2; $('lIncl').textContent = c.inclinacion_max; } }).catch(() => { });
+
+/* ---------- sensores ---------- */
+const RAD = Math.PI / 180;
+let ori = null, montaje = null, g0 = null, g = null, pico = 0, gpsFix = null, activo = false;
+function rumboDe(o) {
+  // matriz de rotación del celular (W3C DeviceOrientation, orden Z-X'-Y'') aplicada a un vector fijo del celular
+  const a = (o.alpha || 0) * RAD, b = (o.beta || 0) * RAD, c = (o.gamma || 0) * RAD;
+  const cA = Math.cos(a), sA = Math.sin(a), cB = Math.cos(b), sB = Math.sin(b), cG = Math.cos(c), sG = Math.sin(c);
+  let x, y;
+  if (montaje === 'acostado') { x = -cB * sA; y = cA * cB; }                      // borde superior del celular
+  else { x = -(cG * sA * sB + cA * sG); y = -(sA * sG - cA * cG * sB); }            // cámara trasera
+  return ((Math.atan2(y, x) / RAD) % 360 + 360) % 360;
+}
+function alOrientar(e) {
+  if (e.alpha == null) return;
+  ori = { alpha: e.alpha, beta: e.beta, gamma: e.gamma };
+  if (!montaje) montaje = Math.abs(e.beta) < 45 && Math.abs(e.gamma) < 45 ? 'acostado' : 'de pie';
+  $('dMontaje').textContent = montaje === 'acostado' ? 'acostado (pantalla arriba)' : 'de pie (cámara adelante)';
+}
+function alMover(e) {
+  const ag = e.accelerationIncludingGravity;
+  if (ag && ag.x != null) {
+    const v = [ag.x, ag.y, ag.z];
+    g = g ? g.map((q, i) => q * 0.9 + v[i] * 0.1) : v;                             // gravedad filtrada
+    if (!g0) g0 = g.slice();
+    const lin = e.acceleration && e.acceleration.x != null ? [e.acceleration.x, e.acceleration.y, e.acceleration.z] : v.map((q, i) => q - g[i]);
+    pico = Math.max(pico, Math.hypot(...lin));
+  }
+}
+function inclinacion() {
+  if (!g || !g0) return 0;
+  const n = Math.hypot(...g) * Math.hypot(...g0); if (!n) return 0;
+  return Math.acos(Math.max(-1, Math.min(1, (g[0] * g0[0] + g[1] * g0[1] + g[2] * g0[2]) / n))) / RAD;
+}
+$('bIniciar').addEventListener('click', async () => {
+  if (!window.isSecureContext) { alert('Abre esta página con https:// (los sensores solo funcionan así).'); return; }
+  try {
+    if (typeof DeviceOrientationEvent !== 'undefined' && DeviceOrientationEvent.requestPermission) { if (await DeviceOrientationEvent.requestPermission() !== 'granted') throw new Error('Permiso de orientación denegado.'); }
+    if (typeof DeviceMotionEvent !== 'undefined' && DeviceMotionEvent.requestPermission) { if (await DeviceMotionEvent.requestPermission() !== 'granted') throw new Error('Permiso de movimiento denegado.'); }
+  } catch (e) { alert(e.message); return; }
+  montaje = null; g0 = null; g = null;
+  addEventListener('deviceorientation', alOrientar);
+  addEventListener('devicemotion', alMover);
+  activo = true; $('bIniciar').textContent = 'Sensores activos (reiniciar montaje)';
+  try { if (navigator.wakeLock) await navigator.wakeLock.request('screen'); } catch (_) { }
+  conectar();
+});
+$('gps').addEventListener('change', e => {
+  if (!e.target.checked || !navigator.geolocation) { gpsFix = null; return; }
+  navigator.geolocation.watchPosition(p => { gpsFix = { lat: p.coords.latitude, lon: p.coords.longitude, precision: p.coords.accuracy }; $('dGps').textContent = `±${Math.round(p.coords.accuracy)} m`; },
+    er => { $('dGps').textContent = er.message; }, { enableHighAccuracy: true, maximumAge: 2000 });
+});
+setInterval(() => {                                                                   // 10 lecturas por segundo
+  if (!activo || !ori || !token || document.hidden) return;
+  const m = { t: 'celular', rumbo: +rumboDe(ori).toFixed(2), inclinacion: +inclinacion().toFixed(1), acel_max: +pico.toFixed(2) };
+  if ($('gps').checked && gpsFix) m.gps = gpsFix;
+  $('dRumbo').textContent = m.rumbo.toFixed(1) + '°'; $('dIncl').textContent = m.inclinacion.toFixed(1) + '°'; $('dAcel').textContent = m.acel_max.toFixed(1) + ' m/s²';
+  pico = 0;
+  if (wsOk && ws.readyState === 1) ws.send(JSON.stringify(m)); else api('/api/celular', m).catch(() => { });
+  $('dEnv').textContent = ++enviados;
+}, 100);
+
+/* ---------- cámara ---------- */
+let camT = null;
+$('bCamara').addEventListener('click', async () => {
+  if (camT) { clearInterval(camT); camT = null; const s = $('video').srcObject; if (s) s.getTracks().forEach(t => t.stop()); $('bCamara').textContent = 'Enviar cámara'; $('vista').hidden = true; return; }
+  try {
+    const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 640 } }, audio: false });
+    $('video').srcObject = s; await $('video').play();
+    $('bCamara').textContent = 'Detener cámara'; $('vista').hidden = false;
+    let ocupado = false;
+    camT = setInterval(() => {
+      if (ocupado || !token || document.hidden) return; ocupado = true;
+      const v = $('video'), c = $('lienzo'); c.width = 320; c.height = Math.round(320 * (v.videoHeight || 240) / (v.videoWidth || 320));
+      c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+      c.toBlob(b => { if (!b) { ocupado = false; return; }
+        const viejo = $('vista').src; $('vista').src = URL.createObjectURL(b); if (viejo.startsWith('blob:')) URL.revokeObjectURL(viejo);
+        fetch('/api/camara', { method: 'POST', headers: { 'X-Token': token, 'Content-Type': 'image/jpeg' }, body: b }).catch(() => { }).finally(() => { ocupado = false; }); }, 'image/jpeg', 0.6);
+    }, 700);
+  } catch (e) { alert('No se pudo abrir la cámara: ' + e.message); }
+});
+conectar();
+</script>
+</body>
+</html>

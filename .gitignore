@@ -1,0 +1,19 @@
+node_modules/
+*.log
+__pycache__/
+.DS_Store
+Thumbs.db
+~$*
+raspberry/recorridos.json
+raspberry/registros/
+raspberry/simulacion/
+raspberry/rutas.json
+raspberry/cert.pem
+raspberry/clave.pem
+raspberry/*.tmp
+
+# documentos del informe: no se publican
+*.docx
+*.doc
+*.pdf
+~$*
